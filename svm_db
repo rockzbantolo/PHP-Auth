@@ -1,0 +1,314 @@
+/*
+SQLyog Community v13.3.0 (64 bit)
+MySQL - 5.7.14-log : Database - svm
+*********************************************************************
+*/
+
+/*!40101 SET NAMES utf8 */;
+
+/*!40101 SET SQL_MODE=''*/;
+
+/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;
+/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
+/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
+/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
+CREATE DATABASE /*!32312 IF NOT EXISTS*/`svm` /*!40100 DEFAULT CHARACTER SET utf8 */;
+
+USE `svm`;
+
+/*Table structure for table `statuses` */
+
+DROP TABLE IF EXISTS `statuses`;
+
+CREATE TABLE `statuses` (
+  `status_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `status_code` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Unique code, e.g., LOGIN, OPEN',
+  `category` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Context, e.g., USER_ACTION, SERVICE_REQUEST',
+  `display_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Human-readable name for UI',
+  `description` text COLLATE utf8mb4_unicode_ci COMMENT 'Details about the status',
+  `is_active` tinyint(1) DEFAULT '1' COMMENT 'For enabling/disabling statuses',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`status_id`),
+  UNIQUE KEY `idx_status_code_category` (`status_code`,`category`),
+  KEY `idx_category` (`category`),
+  KEY `idx_statuses_code` (`status_code`,`category`,`is_active`)
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*Data for the table `statuses` */
+
+insert  into `statuses`(`status_id`,`status_code`,`category`,`display_name`,`description`,`is_active`,`created_at`) values 
+(1,'ACCOUNT_CREATED','USER_ACTION','Account Created','User account created',1,'2025-09-05 10:05:58.842441'),
+(2,'LOGIN','USER_ACTION','User Login','User successfully logged in',1,'2025-09-05 10:05:58.842441'),
+(3,'LOGOUT','USER_ACTION','User Logout','User logged out',1,'2025-09-05 10:05:58.842441'),
+(4,'PASSWORD_CHANGE','USER_ACTION','Password Change','User changed their password',1,'2025-09-05 10:05:58.842441'),
+(5,'2FA_ENABLED','USER_ACTION','2FA Enabled','Two-factor authentication enabled',1,'2025-09-05 10:05:58.842441'),
+(6,'2FA_DISABLED','USER_ACTION','2FA Disabled','Two-factor authentication disabled',1,'2025-09-05 10:05:58.842441'),
+(7,'ACCOUNT_LOCKED','USER_ACTION','Account Locked','Account locked due to failed attempts',1,'2025-09-05 10:05:58.842441'),
+(8,'ACCOUNT_UNLOCKED','USER_ACTION','Account Unlocked','Account manually unlocked',1,'2025-09-05 10:05:58.842441'),
+(9,'ACCOUNT_DELETED','USER_ACTION','Account Deleted','Account soft-deleted',1,'2025-09-05 10:05:58.842441');
+
+/*Table structure for table `user_activity_logs` */
+
+DROP TABLE IF EXISTS `user_activity_logs`;
+
+CREATE TABLE `user_activity_logs` (
+  `log_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned NOT NULL,
+  `status_id` bigint(20) unsigned NOT NULL COMMENT 'References statuses table for action type',
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'IPv4/IPv6 address',
+  `user_agent` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Browser/device info',
+  `action_timestamp` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `details` json DEFAULT NULL COMMENT 'Additional context (e.g., failed login reason)',
+  PRIMARY KEY (`log_id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_status_id` (`status_id`),
+  KEY `idx_action_timestamp` (`action_timestamp`),
+  KEY `idx_activity_user_id` (`user_id`,`action_timestamp`),
+  CONSTRAINT `user_activity_logs_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `user_activity_logs_ibfk_2` FOREIGN KEY (`status_id`) REFERENCES `statuses` (`status_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=106 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*Data for the table `user_activity_logs` */
+
+insert  into `user_activity_logs`(`log_id`,`user_id`,`status_id`,`ip_address`,`user_agent`,`action_timestamp`,`details`) values 
+(1,1,1,NULL,NULL,'2025-09-05 10:34:44.493646','{\"action\": \"User account created\"}'),
+(2,1,2,'::1','PostmanRuntime/7.39.1','2025-09-05 10:58:40.404460','{\"device\": \"PostmanRuntime/7.39.1\"}'),
+(3,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 11:02:18.193675','{\"action\": \"User logged out\"}'),
+(4,1,7,'::1','PostmanRuntime/7.39.1','2025-09-05 11:17:33.749145','{\"reason\": \"Too many failed attempts\"}'),
+(5,1,7,'::1','PostmanRuntime/7.39.1','2025-09-05 11:17:34.421833','{\"reason\": \"Too many failed attempts\"}'),
+(6,1,7,'::1','PostmanRuntime/7.39.1','2025-09-05 11:17:35.108459','{\"reason\": \"Too many failed attempts\"}'),
+(7,1,7,'::1','PostmanRuntime/7.39.1','2025-09-05 11:17:42.279532','{\"reason\": \"Too many failed attempts\"}'),
+(8,1,7,'::1','PostmanRuntime/7.39.1','2025-09-05 11:17:43.015784','{\"reason\": \"Too many failed attempts\"}'),
+(9,1,7,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 11:46:11.147043','{\"reason\": \"Too many failed attempts\"}'),
+(10,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 11:47:44.511705','{\"action\": \"Login attempts reset\"}'),
+(11,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:40:10.530664','{\"device\": null}'),
+(12,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:40:11.232499','{\"device\": null}'),
+(13,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:42:59.719417','{\"device\": null}'),
+(14,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:43:11.725068','{\"action\": \"User logged out\"}'),
+(15,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:48.510396','{\"device\": null}'),
+(16,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:49.491417','{\"device\": null}'),
+(17,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:50.194967','{\"device\": null}'),
+(18,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:50.890686','{\"device\": null}'),
+(19,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:51.541430','{\"device\": null}'),
+(20,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:52.240442','{\"device\": null}'),
+(21,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:43:52.788215','{\"device\": null}'),
+(22,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:44:08.745783','{\"action\": \"User logged out\"}'),
+(23,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:51:09.999159','{\"device\": null}'),
+(24,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:51:20.017230','{\"action\": \"User logged out\"}'),
+(25,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:51:36.703828','{\"device\": null}'),
+(26,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:51:38.002799','{\"device\": null}'),
+(27,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:51:57.894762','{\"action\": \"User logged out\"}'),
+(28,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:52:37.673125','{\"device\": null}'),
+(29,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:52:46.021562','{\"action\": \"User logged out\"}'),
+(30,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:52:49.443730','{\"device\": null}'),
+(31,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:59:48.421369','{\"action\": \"User logged out\"}'),
+(32,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 12:59:51.019402','{\"device\": null}'),
+(33,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 12:59:57.150392','{\"action\": \"User logged out\"}'),
+(34,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:01:17.926958','{\"action\": \"Login attempts reset\"}'),
+(35,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:01:17.931672','{\"device\": null}'),
+(36,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 13:01:25.271337','{\"action\": \"User logged out\"}'),
+(37,1,7,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:01:35.738299','{\"reason\": \"Too many failed attempts\"}'),
+(38,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:05:45.280781','{\"device\": null}'),
+(39,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 13:06:08.504065','{\"action\": \"User logged out\"}'),
+(40,1,7,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:09:31.176865','{\"reason\": \"Too many failed attempts\"}'),
+(41,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:32:48.515026','{\"action\": \"Login attempts reset\"}'),
+(42,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:32:48.519676','{\"device\": null}'),
+(43,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 13:33:11.219554','{\"action\": \"User logged out\"}'),
+(44,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:58:01.581715','{\"action\": \"Login attempts reset\"}'),
+(45,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 13:59:46.870710','{\"device\": null}'),
+(46,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:53:59.073616','{\"action\": \"Login attempts reset\"}'),
+(47,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:53:59.078675','{\"device\": null}'),
+(48,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:54:32.621542','{\"device\": null}'),
+(49,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 14:55:01.914732','{\"action\": \"User logged out\"}'),
+(50,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:55:11.191490','{\"device\": null}'),
+(51,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 14:56:29.011651','{\"action\": \"User logged out\"}'),
+(52,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:56:57.732496','{\"device\": null}'),
+(53,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 14:57:53.450444','{\"action\": \"User logged out\"}'),
+(54,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 14:58:16.057436','{\"device\": \"Rockz\"}'),
+(55,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 15:07:05.308740','{\"action\": \"User logged out\"}'),
+(56,3,1,NULL,NULL,'2025-09-05 15:09:15.983235','{\"action\": \"User account created\"}'),
+(57,3,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:11:54.367947','{\"device\": \"Rockz\"}'),
+(58,3,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:16:26.907933','{\"device\": \"Rockz\"}'),
+(59,3,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:17:26.086824','{\"device\": \"Rockz\"}'),
+(60,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:24:09.687261','{\"device\": \"Rockz\"}'),
+(61,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 15:24:17.455870','{\"action\": \"User logged out\"}'),
+(62,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:25:00.762313','{\"device\": \"Rockz\"}'),
+(63,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:27:35.207603','{\"device\": \"Rockz\"}'),
+(64,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 15:28:00.585721','{\"action\": \"User logged out\"}'),
+(65,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:28:52.717040','{\"device\": \"Rockz\"}'),
+(66,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 15:29:11.559370','{\"action\": \"User logged out\"}'),
+(67,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:30:00.941489','{\"device\": \"Rockz\"}'),
+(68,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:35:16.591379','{\"action\": \"Login attempts reset\"}'),
+(69,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:35:16.596423','{\"device\": \"Rockz\"}'),
+(70,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 15:45:32.499932','{\"device\": \"Rockz\"}'),
+(71,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 17:35:25.515602','{\"device\": \"Rockz\"}'),
+(72,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 17:47:16.657426','{\"action\": \"User logged out\"}'),
+(73,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 17:51:52.723716','{\"device\": \"Rockz\"}'),
+(74,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 17:51:56.154288','{\"action\": \"User logged out\"}'),
+(75,4,1,NULL,NULL,'2025-09-05 23:05:10.014746','{\"action\": \"User account created\"}'),
+(76,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-05 23:41:53.670530','{\"device\": \"Rockz\"}'),
+(77,1,3,'::1','PostmanRuntime/7.39.1','2025-09-05 23:41:59.258164','{\"action\": \"User logged out\"}'),
+(78,5,1,NULL,NULL,'2025-09-05 23:42:22.834094','{\"action\": \"User account created\"}'),
+(79,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 00:22:48.317898','{\"device\": \"Rockz\"}'),
+(80,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 00:22:57.907658','{\"action\": \"User logged out\"}'),
+(81,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 00:43:35.815800','{\"device\": \"Rockz\"}'),
+(82,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 00:57:05.844860','{\"action\": \"User logged out\"}'),
+(83,1,7,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:02:00.909479','{\"reason\": \"Too many failed attempts\"}'),
+(84,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:13:19.320963','{\"action\": \"Login attempts reset\"}'),
+(85,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:16:54.770028','{\"device\": \"Rockz\"}'),
+(86,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:25:38.990595','{\"action\": \"User logged out\"}'),
+(87,1,8,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:25:59.677414','{\"action\": \"Login attempts reset\"}'),
+(88,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:25:59.684714','{\"device\": \"Rockz\"}'),
+(89,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:29:43.192216','{\"action\": \"User logged out\"}'),
+(90,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:29:47.261283','{\"device\": \"Rockz\"}'),
+(91,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:33:11.970656','{\"action\": \"User logged out\"}'),
+(92,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:33:16.429269','{\"device\": \"Rockz\"}'),
+(93,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:33:21.862600','{\"action\": \"User logged out\"}'),
+(94,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:33:38.696681','{\"device\": \"Rockz\"}'),
+(95,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:34:55.924003','{\"action\": \"User logged out\"}'),
+(96,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:34:59.734233','{\"device\": \"Rockz\"}'),
+(97,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:36:19.098218','{\"action\": \"User logged out\"}'),
+(98,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:40:22.897666','{\"device\": \"Rockz\"}'),
+(99,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:40:37.447220','{\"action\": \"User logged out\"}'),
+(100,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:46:33.155520','{\"device\": \"Rockz\"}'),
+(101,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:46:45.313714','{\"action\": \"User logged out\"}'),
+(102,6,1,NULL,NULL,'2025-09-06 01:48:20.884228','{\"action\": \"User account created\"}'),
+(103,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 01:58:13.396524','{\"device\": \"Rockz\"}'),
+(104,1,3,'::1','PostmanRuntime/7.39.1','2025-09-06 01:58:18.876870','{\"action\": \"User logged out\"}'),
+(105,1,2,'192.168.1.10','Mozilla/5.0 (Windows NT 10.0; Win64; x64)','2025-09-06 02:02:47.625090','{\"device\": \"Rockz\"}');
+
+/*Table structure for table `user_tokens` */
+
+DROP TABLE IF EXISTS `user_tokens`;
+
+CREATE TABLE `user_tokens` (
+  `token_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint(20) unsigned NOT NULL,
+  `jwt_token` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'JWT for authentication',
+  `token_expiry` datetime DEFAULT NULL,
+  `refresh_token` varchar(512) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Refresh token for session renewal',
+  `refresh_expiry` datetime DEFAULT NULL,
+  `device_info` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Device or browser info',
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (`token_id`),
+  KEY `idx_user_id` (`user_id`),
+  KEY `idx_token_expiry` (`token_expiry`),
+  KEY `idx_user_tokens_refresh` (`refresh_token`),
+  KEY `idx_user_tokens_user_id` (`user_id`),
+  CONSTRAINT `user_tokens_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*Data for the table `user_tokens` */
+
+insert  into `user_tokens`(`token_id`,`user_id`,`jwt_token`,`token_expiry`,`refresh_token`,`refresh_expiry`,`device_info`,`created_at`) values 
+(20,1,'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NTcwOTUzNjcsImV4cCI6MTc1NzA5ODk2NywidXNlcl9pZCI6MSwidXNlcm5hbWUiOiJyb2NreiJ9.HwvTPv1WNvl8UglaQx5JY0-eh4anGtwPeTnYdYfTRf8','2025-09-06 03:02:47','71da9484276b88a385939d13654487dd85fa47a47a09324f0d7a9ecaf96b9281','2025-10-06 02:02:47','Rockz','2025-09-06 02:02:47.622642');
+
+/*Table structure for table `users` */
+
+DROP TABLE IF EXISTS `users`;
+
+CREATE TABLE `users` (
+  `user_id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password_hash` char(60) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Stores bcrypt hash; adjust for other algorithms',
+  `secret_pass` char(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'For 2FA secrets or recovery codes',
+  `first_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'User’s first name',
+  `last_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'User’s last name',
+  `last_ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Stores IPv4/IPv6 for last login',
+  `last_login` datetime(6) DEFAULT NULL,
+  `last_logout` datetime(6) DEFAULT NULL,
+  `failed_attempts` tinyint(3) unsigned DEFAULT '0',
+  `lock_until` datetime(6) DEFAULT NULL,
+  `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  `updated_at` datetime(6) DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP(6),
+  `deleted_at` datetime(6) DEFAULT NULL COMMENT 'For soft deletes',
+  `is_two_factor_enabled` tinyint(1) DEFAULT '0',
+  `is_online` tinyint(1) DEFAULT '0',
+  `is_approved` tinyint(1) DEFAULT '0',
+  `is_active` tinyint(1) DEFAULT '1',
+  PRIMARY KEY (`user_id`),
+  UNIQUE KEY `idx_username` (`username`),
+  UNIQUE KEY `idx_email` (`email`),
+  KEY `idx_last_login` (`last_login`),
+  KEY `idx_is_active` (`is_active`),
+  KEY `idx_users_username` (`username`),
+  KEY `idx_users_status` (`is_active`,`deleted_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*Data for the table `users` */
+
+insert  into `users`(`user_id`,`username`,`email`,`password_hash`,`secret_pass`,`first_name`,`last_name`,`last_ip_address`,`last_login`,`last_logout`,`failed_attempts`,`lock_until`,`created_at`,`updated_at`,`deleted_at`,`is_two_factor_enabled`,`is_online`,`is_approved`,`is_active`) values 
+(1,'rockz','john@example.com','$2y$10$mS8QbUjy7LHAvdd6Tu2kKu/iGC17TkVGy5dgvz.hWFpmmf2u4lxBO',NULL,'John','Doe','192.168.1.10','2025-09-06 02:02:47.000000','2025-09-06 01:58:18.000000',0,NULL,'2025-09-05 10:34:44.484467','2025-09-06 02:02:47.623057',NULL,0,1,1,1),
+(3,'admin','admin@example.com','$2y$10$oQ.o1ldqzsUJ4sGwkcSjieoHjY9KwyYmnBDGw01nxkhucPxa4ra36',NULL,'John','Doe','192.168.1.10','2025-09-05 15:17:26.000000',NULL,0,NULL,'2025-09-05 15:09:15.981741','2025-09-05 15:25:49.145847',NULL,0,0,0,1),
+(4,'admin1','axdmin@example.com','$2y$10$uw81dzB/Q0kkIRqAZwgDLOEp.Lz/i91okjiwxPrgwbek20Fy3qlju',NULL,'John','Doe',NULL,NULL,NULL,0,NULL,'2025-09-05 23:05:10.000467',NULL,NULL,0,0,0,1),
+(5,'admin123','xaxdmin@example.com','$2y$10$uyXecIq0G4lTuDob//RJauNiNHWB0mAa6jDqOIbN9SkUUDpbQOOnu',NULL,'John','Doe',NULL,NULL,NULL,0,NULL,'2025-09-05 23:42:22.826718',NULL,NULL,0,0,0,1),
+(6,'admin1234','xaxxdmin@example.com','$2y$10$x8Oa2fNyuXatkiI.8hMP6uLfpdfSCIC.bI6TZ14WWip8/v1V3q8ti',NULL,'John','Doe',NULL,NULL,NULL,0,NULL,'2025-09-06 01:48:20.881873',NULL,NULL,0,0,0,1);
+
+/*Table structure for table `vw_user_active_session` */
+
+DROP TABLE IF EXISTS `vw_user_active_session`;
+
+/*!50001 DROP VIEW IF EXISTS `vw_user_active_session` */;
+/*!50001 DROP TABLE IF EXISTS `vw_user_active_session` */;
+
+/*!50001 CREATE TABLE  `vw_user_active_session`(
+ `username` varchar(50) ,
+ `device_info` varchar(255) ,
+ `token_expiry` datetime 
+)*/;
+
+/*Table structure for table `vw_user_locked_accounts` */
+
+DROP TABLE IF EXISTS `vw_user_locked_accounts`;
+
+/*!50001 DROP VIEW IF EXISTS `vw_user_locked_accounts` */;
+/*!50001 DROP TABLE IF EXISTS `vw_user_locked_accounts` */;
+
+/*!50001 CREATE TABLE  `vw_user_locked_accounts`(
+ `username` varchar(50) ,
+ `email` varchar(255) ,
+ `failed_attempts` tinyint(3) unsigned ,
+ `lock_until` datetime(6) 
+)*/;
+
+/*Table structure for table `vw_user_recent_activity` */
+
+DROP TABLE IF EXISTS `vw_user_recent_activity`;
+
+/*!50001 DROP VIEW IF EXISTS `vw_user_recent_activity` */;
+/*!50001 DROP TABLE IF EXISTS `vw_user_recent_activity` */;
+
+/*!50001 CREATE TABLE  `vw_user_recent_activity`(
+ `username` varchar(50) ,
+ `ACTION` varchar(100) ,
+ `action_timestamp` datetime(6) ,
+ `ip_address` varchar(45) ,
+ `user_agent` varchar(255) 
+)*/;
+
+/*View structure for view vw_user_active_session */
+
+/*!50001 DROP TABLE IF EXISTS `vw_user_active_session` */;
+/*!50001 DROP VIEW IF EXISTS `vw_user_active_session` */;
+
+/*!50001 CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vw_user_active_session` AS select `u`.`username` AS `username`,`t`.`device_info` AS `device_info`,`t`.`token_expiry` AS `token_expiry` from (`users` `u` join `user_tokens` `t` on((`u`.`user_id` = `t`.`user_id`))) where (`t`.`token_expiry` > now()) */;
+
+/*View structure for view vw_user_locked_accounts */
+
+/*!50001 DROP TABLE IF EXISTS `vw_user_locked_accounts` */;
+/*!50001 DROP VIEW IF EXISTS `vw_user_locked_accounts` */;
+
+/*!50001 CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vw_user_locked_accounts` AS select `users`.`username` AS `username`,`users`.`email` AS `email`,`users`.`failed_attempts` AS `failed_attempts`,`users`.`lock_until` AS `lock_until` from `users` where (`users`.`lock_until` > now()) */;
+
+/*View structure for view vw_user_recent_activity */
+
+/*!50001 DROP TABLE IF EXISTS `vw_user_recent_activity` */;
+/*!50001 DROP VIEW IF EXISTS `vw_user_recent_activity` */;
+
+/*!50001 CREATE ALGORITHM=UNDEFINED SQL SECURITY DEFINER VIEW `vw_user_recent_activity` AS select `u`.`username` AS `username`,`s`.`display_name` AS `ACTION`,`l`.`action_timestamp` AS `action_timestamp`,`l`.`ip_address` AS `ip_address`,`l`.`user_agent` AS `user_agent` from ((`users` `u` join `user_activity_logs` `l` on((`u`.`user_id` = `l`.`user_id`))) join `statuses` `s` on((`l`.`status_id` = `s`.`status_id`))) where (`s`.`category` = 'USER_ACTION') order by `l`.`action_timestamp` desc limit 100 */;
+
+/*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
+/*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
+/*!40014 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS */;
+/*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
