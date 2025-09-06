@@ -45,7 +45,7 @@ class Token
         return ['token' => $token, 'expires_at' => $expiresAt];
     }
 
-       /**
+    /**
      * Decode and validate a JWT
      *
      * @param string $token
@@ -53,9 +53,11 @@ class Token
      */
     public static function decode(string $token): ?array
     {
+        self::initSecret(); // Ensure secret loaded
+
         try {
             $decoded = JWT::decode($token, new Key(self::$jwtSecret, 'HS256'));
-            return (array) $decoded; // Convert stdClass to array
+            return (array) $decoded;
         } catch (ExpiredException $e) {
             return null; // Token expired
         } catch (\Throwable $e) {

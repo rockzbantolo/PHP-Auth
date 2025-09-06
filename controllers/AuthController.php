@@ -56,6 +56,7 @@ class AuthController
             return $user
                 ? Response::success($user, "User found")
                 : Response::notFound("User with ID $id not found");
+                
         } catch (Throwable $e) {
             return Response::error("Failed to fetch user", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
         }
@@ -64,6 +65,7 @@ class AuthController
     public function registerUser($data)
     {
         try {
+
             $errors = Utils::requireFields($data, ['username', 'password', 'email']);
             if (!empty($errors)) {
                 return Response::validationError($errors, "Validation failed", StatusCode::UNPROCESSABLE_ENTITY);
@@ -98,8 +100,16 @@ class AuthController
     public function updateUserById($id, $data)
     {
         try {
+
             if (!Utils::validateId($id)) {
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
+            }
+
+            if (isset($data['username'])) {
+                $user = $this->userModel->findByUsername($data['username']);
+                if ($user && (int)$user['user_id'] !== (int)$id) {
+                    return Response::error("Username is not available", StatusCode::CONFLICT);
+                }
             }
 
             if (isset($data['email']) && !Utils::validateEmail($data['email'])) {
@@ -115,6 +125,7 @@ class AuthController
             return $result
                 ? Response::success([], "User updated successfully")
                 : Response::error("User update failed or user not found", StatusCode::NOT_FOUND);
+
         } catch (Throwable $e) {
             return Response::error("Failed to update user", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
         }
@@ -123,6 +134,7 @@ class AuthController
     public function deleteUserById($id)
     {
         try {
+
             if (!Utils::validateId($id)) {
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
             }
@@ -131,6 +143,7 @@ class AuthController
             return $result['success']
                 ? Response::success([], "User soft-deleted successfully")
                 : Response::error("User deletion failed or user not found", StatusCode::NOT_FOUND);
+
         } catch (Throwable $e) {
             return Response::error("Failed to delete user", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
         }

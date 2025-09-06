@@ -11,17 +11,20 @@ class Routes
         //  Authentication
         Routing::map($router, '/Auth', AuthController::class, function($r) {
 
-            // Authentication
           $r->post('/Login', 'login')
             ->post('/Logout', 'logout')
             ->post('/Register', 'registerUser')
-            ->post('/RefreshToken', 'refreshToken')
+            ->post('/RefreshToken', 'refreshToken');
 
-            // Users
-            ->get('/Users', 'getAllUsers')
-            ->get('/Users/{id}', 'getUserById')
-            ->put('/Users/{id}', 'updateUserById')
-            ->delete('/Users/{id}', 'deleteUserById')
+        });
+
+        //  Users
+        Routing::map($router, '/User', AuthController::class, function($r) {
+
+          $r->get('', 'getAllUsers')
+            ->get('/{id}', 'getUserById')
+            ->put('/{id}', 'updateUserById')
+            ->delete('/{id}', 'deleteUserById')
 
             // Batch
             ->post('/Batch/Create', 'batchCreateUsers')

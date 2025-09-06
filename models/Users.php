@@ -2,11 +2,34 @@
 namespace Mws\Models;
 
 use Mws\Core\Connection;
-use Exception;
 use Mws\Core\Base;
+
+use InvalidArgumentException;
+use RuntimeException;
+use Exception;
+use mysqli;
 
 class Users extends Base // Extend to Database
 {
+
+    private const USER_TYPES = [
+        'username'              => 's',
+        'email'                 => 's',
+        'password_hash'         => 's',
+        'secret_pass'           => 's',
+        'first_name'            => 's',
+        'last_name'             => 's',
+        'is_two_factor_enabled' => 'i',
+        'is_online'             => 'i',
+        'is_approved'           => 'i',
+        'is_active'             => 'i',
+        'last_login'            => 's',
+        'last_logout'           => 's',
+        'failed_attempts'       => 'i',
+        'lock_until'            => 's',
+        'last_ip_address'       => 's',
+    ];
+
     // ----------------------
     // USER MANAGEMENT
     // ----------------------
@@ -48,13 +71,13 @@ class Users extends Base // Extend to Database
 
         $user = $this->exQuery($conn, $query, "i", [$id], true);
         Connection::release($conn);
-        return $user;
+        return $user ?: false;
     }
 
     public function findByUsername($username)
     {
         $conn = Connection::getInstance();
-        $query = "SELECT * FROM users WHERE username = ? AND is_active = 1";
+        $query = "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL";
         $user = $this->exQuery($conn, $query, "s", [$username], true);
         Connection::release($conn);
         return $user ?: false;
@@ -63,37 +86,27 @@ class Users extends Base // Extend to Database
     public function findByEmail($email)
     {
         $conn = Connection::getInstance();
-        $query = "SELECT * FROM users WHERE email = ? AND is_active = 1";
+        $query = "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL";
         $user = $this->exQuery($conn, $query, "s", [$email], true);
         Connection::release($conn);
         return $user ?: false;
     }
 
-    public function createUser($data)
+    public function createUser(array $data)
     {
-        return $this->exTransaction(function ($conn) use ($data) {
-            $sql = "
-                INSERT INTO users (
-                    username, email, password_hash,
-                    first_name, last_name,
-                    is_two_factor_enabled, is_approved, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ";
+        return $this->exTransaction(function (mysqli $conn) use ($data) {
+            
+            $allowed = ['username', 'email', 'password_hash', 'first_name', 'last_name'];
+            $sqlParts = $this->mapFields($data, $allowed, self::USER_TYPES);
 
-            $params = [
-                $data['username'],
-                $data['email'],
-                $data['password_hash'],
-                $data['first_name'] ?? null,
-                $data['last_name'] ?? null,
-                (int)($data['is_two_factor_enabled'] ?? 0),
-                (int)($data['is_approved'] ?? 0),
-                (int)($data['is_active'] ?? 1),
-            ];
+            $sql = sprintf(
+                "INSERT INTO users (%s) VALUES (%s)",
+                implode(', ', $sqlParts['fields']),
+                implode(', ', $sqlParts['placeholders'])
+            );
 
-            $this->exQuery($conn, $sql, "sssssiii", $params);
+            $this->exQuery($conn, $sql, $sqlParts['types'], $sqlParts['params']);
             $insertId = $conn->insert_id;
-
             $this->logUserAction($conn, $insertId, 'ACCOUNT_CREATED', null, null, [
                 'action' => 'User account created'
             ]);
@@ -102,83 +115,65 @@ class Users extends Base // Extend to Database
         });
     }
 
-    public function updateUser($id, $data)
+    public function updateUser(int $id, array $data): bool
     {
-        return $this->exTransaction(function ($conn) use ($id, $data) {
-            $fields = [];
-            $params = [];
-            $types  = "";
-            $logAction = null;
+        return $this->exTransaction(function (mysqli $conn) use ($id, $data): bool {
 
-            $map = [
-                'username'              => 's',
-                'email'                 => 's',
-                'password_hash'         => 's',
-                'secret_pass'           => 's',
-                'first_name'            => 's',
-                'last_name'             => 's',
-                'is_two_factor_enabled' => 'i',
-                'is_online'             => 'i',
-                'is_approved'           => 'i',
-                'is_active'             => 'i',
-                'last_login'            => 's',
-                'last_logout'           => 's',
-                'failed_attempts'       => 'i',
-                'lock_until'            => 's',
-                'last_ip_address'       => 's'
-            ];
+            $sqlParts = $this->mapFields($data, array_keys(self::USER_TYPES), self::USER_TYPES);
+            if (empty($sqlParts['set'])) {
+                throw new InvalidArgumentException('No valid fields provided for update.');
+            }
 
-            foreach ($map as $key => $type) {
-                if (isset($data[$key])) {
-                    $fields[] = "$key = ?";
-                    $params[] = $data[$key];
-                    $types .= $type;
+            // Auto-maintain updated_at
+            $sqlParts['set'][] = 'updated_at = NOW()';
 
-                    if ($key === 'password_hash') $logAction = 'PASSWORD_CHANGE';
-                    if ($key === 'is_two_factor_enabled') $logAction = $data[$key] ? '2FA_ENABLED' : '2FA_DISABLED';
-                    if ($key === 'lock_until') $logAction = $data[$key] ? 'ACCOUNT_LOCKED' : 'ACCOUNT_UNLOCKED';
+            // Add user_id binding
+            $sqlParts['params'][] = $id;
+            $sqlParts['types']   .= 'i';
+
+            $query = 'UPDATE users SET ' . implode(', ', $sqlParts['set']) .
+                    ' WHERE user_id = ? AND deleted_at IS NULL';
+
+            $success = $this->exQuery($conn, $query, $sqlParts['types'], $sqlParts['params']);
+
+            // Optional logging
+            if ($success) {
+                $logAction = 'ACCOUNT_UPDATED';
+                if (isset($data['password_hash'])) {
+                    $logAction = 'PASSWORD_CHANGE';
+                } elseif (isset($data['is_two_factor_enabled'])) {
+                    $logAction = $data['is_two_factor_enabled'] ? '2FA_ENABLED' : '2FA_DISABLED';
+                } elseif (isset($data['lock_until'])) {
+                    $logAction = $data['lock_until'] ? 'ACCOUNT_LOCKED' : 'ACCOUNT_UNLOCKED';
                 }
-            }
 
-            if (empty($fields)) {
-                throw new Exception("No fields provided for update");
-            }
-
-            $fields[] = "updated_at = NOW()";
-            $params[] = $id;
-            $types .= "i";
-
-            $query = "UPDATE users SET " . implode(", ", $fields) . " WHERE user_id = ? AND deleted_at IS NULL";
-            $stmt  = Connection::getCachedStatement($conn, $query) ?? $conn->prepare($query);
-            if (!$stmt) {
-                throw new Exception("Failed to prepare statement: " . $conn->error);
-            }
-            Connection::cacheStatement($conn, $query, $stmt);
-
-            $stmt->bind_param($types, ...$params);
-            $stmt->execute();
-            $success = $stmt->affected_rows > 0;
-
-            if ($success && $logAction) {
-                $this->logUserAction($conn, $id, $logAction, null, null, ['action' => $logAction]);
+                if ($logAction) {
+                    $this->logUserAction($conn, $id, $logAction, null, null, ['action' => 'User account updated']);
+                }
             }
 
             return $success;
         });
     }
 
-    public function deleteUser($id)
+    public function deleteUser(int $id)
     {
-        return $this->exTransaction(function ($conn) use ($id) {
+        return $this->exTransaction(function (mysqli $conn) use ($id) {
+           
+            // Soft delete: just update deleted_at
             $query = "UPDATE users SET deleted_at = NOW() WHERE user_id = ? AND deleted_at IS NULL";
             $success = $this->exQuery($conn, $query, "i", [$id]);
 
             if ($success) {
-                $this->logUserAction($conn, $id, 'ACCOUNT_DELETED', null, null, ['action' => 'User account soft-deleted']);
+                $this->logUserAction($conn, $id, 'ACCOUNT_DELETED', null, null, [
+                    'action' => 'User account soft-deleted'
+                ]);
             }
+
             return ['success' => $success];
         });
     }
+
 
     // ----------------------
     // BATCH APPROACH

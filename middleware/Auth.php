@@ -2,6 +2,10 @@
 namespace Mws\Middleware;
 
 use Mws\Helpers\Response;
+use Mws\Core\StatusCode;
+use Mws\Helpers\Token;
+use Mws\Core\Connection;
+
 
 class Auth
 {
@@ -9,7 +13,7 @@ class Auth
     private static string $validPass = '122190';
     private static string $validApiKey = '1234567890abcdef';
 
-    public static function InitBasicAuth(): void
+    public static function BasicAuth(): void
     {
         // For Apache fallback if PHP_AUTH_USER is not set
         if (!isset($_SERVER['PHP_AUTH_USER'])) {
@@ -35,7 +39,7 @@ class Auth
     }
 
     // API Key Authentication
-    public static function InitApiKeyAuth(): void
+    public static function ApiKey(): void
     {
         $headers = getallheaders();
         $apiKey = $headers['MWS-API-KEY'] ?? null;
@@ -45,4 +49,54 @@ class Auth
             exit;
         }
     }
+
+    // JWT Authentication
+    public static function JWToken(): array
+    {
+        $headers = getallheaders();
+        $authHeader = $headers['Authorization'] ?? '';
+
+        if (!$authHeader || !preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
+            Response::error("Missing or invalid Authorization header", StatusCode::UNAUTHORIZED)->send();
+            exit;
+        }
+
+        $jwt = $matches[1];
+
+        // Decode & validate signature
+        $payload = Token::decode($jwt);
+        if (!$payload) {
+            Response::error("Invalid or expired token", StatusCode::UNAUTHORIZED)->send();
+            exit;
+        }
+
+        // Open DB connection via your Connection class
+        $conn = Connection::getInstance();
+
+        $stmt = $conn->prepare("
+            SELECT *
+            FROM user_tokens
+            WHERE jwt_token = ?
+              AND token_expiry > NOW()
+            LIMIT 1
+        ");
+
+        $stmt->bind_param("s", $jwt);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+
+        if (!$result) {
+            Response::error("Token not found or expired", StatusCode::UNAUTHORIZED)->send();
+            exit;
+        }
+
+        // Optionally release connection if you're caching
+        Connection::release($conn);
+
+        return [
+            'jwt'    => $payload,   // decoded JWT
+            'record' => $result     // DB row
+        ];
+    }
+
 }

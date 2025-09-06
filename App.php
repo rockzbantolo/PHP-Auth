@@ -1,7 +1,7 @@
 <?php
 require __DIR__ . '/composer/vendor/autoload.php';
 
-//use Mws\Middleware\Auth;
+use Mws\Middleware\Auth;
 use Mws\Middleware\Cors;
 use Mws\Helpers\Env;
 use Mws\Helpers\Response;
@@ -10,7 +10,11 @@ use Mws\Core\Routes;
 
 Env::InitEnv('./.env');
 Cors::InitCors();
+
+// Ensures token is valid if token is expired client must call the refresh token.
+//Auth::JWToken();
 //Auth::InitApiKeyAuth();
+//$auth['jwt']['user_id'];
 
 // Initialize router
 [$router, $method, $path] = Request::initRouter();
