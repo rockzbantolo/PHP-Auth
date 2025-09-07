@@ -13,6 +13,10 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
     );
 
     public static $prefixLengthsPsr4 = array (
+        'U' => 
+        array (
+            'UAParser\\' => 9,
+        ),
         'S' => 
         array (
             'Symfony\\Polyfill\\Php80\\' => 23,
@@ -43,9 +47,17 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
         array (
             'Dotenv\\' => 7,
         ),
+        'C' => 
+        array (
+            'Composer\\CaBundle\\' => 18,
+        ),
     );
 
     public static $prefixDirsPsr4 = array (
+        'UAParser\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/ua-parser/uap-php/src',
+        ),
         'Symfony\\Polyfill\\Php80\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-php80',
@@ -93,6 +105,10 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
         'Dotenv\\' => 
         array (
             0 => __DIR__ . '/..' . '/vlucas/phpdotenv/src',
+        ),
+        'Composer\\CaBundle\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/composer/ca-bundle/src',
         ),
     );
 

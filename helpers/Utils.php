@@ -1,7 +1,48 @@
 <?php
 namespace Mws\Helpers;
 
+use UAParser\Parser;
+
 class Utils {
+
+    public static function getUserId(): ?int
+    {
+        // Example: if you attach user_id into JWT claims or session
+        return $_SESSION['user_id'] ?? null; 
+    }
+
+    public static function getClientIp(): string
+    {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $forwardedIps = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
+            $ip = trim($forwardedIps[0]);
+        }
+
+        return $ip;
+    }
+
+    public static function getUserAgent(): string
+    {
+        return $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+    }
+
+    public static function getDeviceInfo(): string
+    {
+        $ua = self::getUserAgent();
+        $parser = Parser::create();
+        $result = $parser->parse($ua);
+
+        $info = [
+            //'raw'      => $ua,
+            'browser'  => $result->ua->family ?? 'Unknown',
+            'platform' => $result->os->family ?? 'Other',
+            'device'   => $result->device->family ?? 'Unknown',
+        ];
+
+        return json_encode($info, JSON_UNESCAPED_SLASHES);
+    }
 
     public static function requireFields(array $data, array $fields): array {
         $errors = [];

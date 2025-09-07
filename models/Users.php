@@ -3,15 +3,18 @@ namespace Mws\Models;
 
 use Mws\Core\Connection;
 use Mws\Core\Base;
+use Mws\Helpers\Utils;
 
 use InvalidArgumentException;
-use RuntimeException;
 use Exception;
 use mysqli;
 
 class Users extends Base // Extend to Database
 {
 
+    /**
+     * Put all required fields that will be used
+     */
     private const USER_TYPES = [
         'username'              => 's',
         'email'                 => 's',
@@ -35,10 +38,7 @@ class Users extends Base // Extend to Database
     // ----------------------
     public function findAllUsers($page = 1, $limit = 10)
     {
-        $offset = ($page - 1) * $limit;
-        $conn = Connection::getInstance();
-
-        $query = "
+        $stmt = "
             SELECT user_id, username, email,
                    CONCAT(first_name, ' ', last_name) AS full_name,
                    last_ip_address, last_login, is_online, is_active, created_at
@@ -48,19 +48,20 @@ class Users extends Base // Extend to Database
             LIMIT ? OFFSET ?
         ";
 
-        $users = $this->exQuery($conn, $query, "ii", [$limit, $offset]);
+        $offset = ($page - 1) * $limit;
+        $conn = Connection::getInstance();
+        $users = $this->fetchData($conn, $stmt, "ii", [$limit, $offset]);
         Connection::release($conn);
 
         $total = $this->getTotalCount();
         $pagination = $this->buildPagination($total, $page, $limit);
 
-        return ['data' => $users, 'pagination' => $pagination];
+        return ['data' => $users ?: [], 'pagination' => $pagination];
     }
 
     public function findUserById($id)
     {
-        $conn = Connection::getInstance();
-        $query = "
+        $stmt = "
             SELECT user_id, username, email, first_name, last_name,
                    last_ip_address, last_login, last_logout, failed_attempts,
                    lock_until, is_two_factor_enabled, is_online, is_approved,
@@ -69,47 +70,49 @@ class Users extends Base // Extend to Database
             WHERE user_id = ? AND deleted_at IS NULL
         ";
 
-        $user = $this->exQuery($conn, $query, "i", [$id], true);
+        $conn = Connection::getInstance();
+        $user = $this->fetchData($conn, $stmt, "i", [$id], true);
         Connection::release($conn);
         return $user ?: false;
     }
 
     public function findByUsername($username)
     {
+        $stmt = "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL";
+
         $conn = Connection::getInstance();
-        $query = "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL";
-        $user = $this->exQuery($conn, $query, "s", [$username], true);
+        $user = $this->fetchData($conn, $stmt, "s", [$username], true);
         Connection::release($conn);
         return $user ?: false;
     }
 
     public function findByEmail($email)
     {
+        $stmt = "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL";
+
         $conn = Connection::getInstance();
-        $query = "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL";
-        $user = $this->exQuery($conn, $query, "s", [$email], true);
+        $user = $this->fetchData($conn, $stmt, "s", [$email], true);
         Connection::release($conn);
         return $user ?: false;
     }
 
     public function createUser(array $data)
     {
-        return $this->exTransaction(function (mysqli $conn) use ($data) {
+        return $this->transact(function (mysqli $conn) use ($data) {
             
             $allowed = ['username', 'email', 'password_hash', 'first_name', 'last_name'];
-            $sqlParts = $this->mapFields($data, $allowed, self::USER_TYPES);
+            $stmtParts = $this->mapFields($data, $allowed, self::USER_TYPES);
 
-            $sql = sprintf(
+            $stmt = sprintf(
                 "INSERT INTO users (%s) VALUES (%s)",
-                implode(', ', $sqlParts['fields']),
-                implode(', ', $sqlParts['placeholders'])
+                implode(', ', $stmtParts['fields']),
+                implode(', ', $stmtParts['placeholders'])
             );
 
-            $this->exQuery($conn, $sql, $sqlParts['types'], $sqlParts['params']);
+            $this->fetchData($conn, $stmt, $stmtParts['types'], $stmtParts['params']);
+            
             $insertId = $conn->insert_id;
-            $this->logUserAction($conn, $insertId, 'ACCOUNT_CREATED', null, null, [
-                'action' => 'User account created'
-            ]);
+            $this->logUserAction($conn, $insertId, 'ACCOUNT_CREATED', ['action' => 'User account created']);
 
             return ['success' => true, 'id' => $insertId];
         });
@@ -117,24 +120,21 @@ class Users extends Base // Extend to Database
 
     public function updateUser(int $id, array $data): bool
     {
-        return $this->exTransaction(function (mysqli $conn) use ($id, $data): bool {
+        return $this->transact(function (mysqli $conn) use ($id, $data): bool {
 
-            $sqlParts = $this->mapFields($data, array_keys(self::USER_TYPES), self::USER_TYPES);
-            if (empty($sqlParts['set'])) {
+            $stmtParts = $this->mapFields($data, array_keys(self::USER_TYPES), self::USER_TYPES);
+            if (empty($stmtParts['set'])) {
                 throw new InvalidArgumentException('No valid fields provided for update.');
             }
 
-            // Auto-maintain updated_at
-            $sqlParts['set'][] = 'updated_at = NOW()';
-
             // Add user_id binding
-            $sqlParts['params'][] = $id;
-            $sqlParts['types']   .= 'i';
+            $stmtParts['params'][] = $id;
+            $stmtParts['types']   .= 'i';
 
-            $query = 'UPDATE users SET ' . implode(', ', $sqlParts['set']) .
+            $stmt = 'UPDATE users SET ' . implode(', ', $stmtParts['set']) .
                     ' WHERE user_id = ? AND deleted_at IS NULL';
 
-            $success = $this->exQuery($conn, $query, $sqlParts['types'], $sqlParts['params']);
+            $success = $this->fetchData($conn, $stmt, $stmtParts['types'], $stmtParts['params']);
 
             // Optional logging
             if ($success) {
@@ -148,7 +148,7 @@ class Users extends Base // Extend to Database
                 }
 
                 if ($logAction) {
-                    $this->logUserAction($conn, $id, $logAction, null, null, ['action' => 'User account updated']);
+                    $this->logUserAction($conn, $id, $logAction, ['action' => 'User account updated']);
                 }
             }
 
@@ -158,11 +158,11 @@ class Users extends Base // Extend to Database
 
     public function deleteUser(int $id)
     {
-        return $this->exTransaction(function (mysqli $conn) use ($id) {
+        return $this->transact(function (mysqli $conn) use ($id) {
            
             // Soft delete: just update deleted_at
-            $query = "UPDATE users SET deleted_at = NOW() WHERE user_id = ? AND deleted_at IS NULL";
-            $success = $this->exQuery($conn, $query, "i", [$id]);
+            $stmt = "UPDATE users SET deleted_at = NOW() WHERE user_id = ? AND deleted_at IS NULL";
+            $success = $this->fetchData($conn, $stmt, "i", [$id]);
 
             if ($success) {
                 $this->logUserAction($conn, $id, 'ACCOUNT_DELETED', null, null, [
@@ -180,7 +180,7 @@ class Users extends Base // Extend to Database
     // ----------------------
     public function bulkCreateUsers(array $users)
     {
-        return $this->exTransaction(function ($conn) use ($users) {
+        return $this->transact(function ($conn) use ($users) {
             $createdUsers = [];
             $userValues   = [];
             $actionValues = [];
@@ -205,14 +205,14 @@ class Users extends Base // Extend to Database
             }
 
             // Insert all users
-            $query = "
+            $stmt = "
                 INSERT INTO users (
                     username, email, password_hash,
                     first_name, last_name,
                     is_two_factor_enabled, is_approved, is_active
                 ) VALUES " . implode(", ", $userValues);
 
-            $stmt = $conn->prepare($query);
+            $stmt = $conn->prepare($stmt);
             $stmt->bind_param($types, ...$params);
             $stmt->execute();
 
@@ -232,12 +232,12 @@ class Users extends Base // Extend to Database
 
             // Insert logs in one go
             if (!empty($actionValues)) {
-                $logQuery = "
+                $logstmt = "
                     INSERT INTO user_actions (
                         user_id, action_type, ip_address, user_agent, metadata
                     ) VALUES " . implode(", ", $actionValues);
 
-                $stmt = $conn->prepare($logQuery);
+                $stmt = $conn->prepare($logstmt);
                 $stmt->bind_param(substr($types, -count($createdUsers)), ...array_slice($params, -count($createdUsers)));
                 $stmt->execute();
             }
@@ -252,7 +252,7 @@ class Users extends Base // Extend to Database
 
     public function bulkUpdateUsers(array $updates)
     {
-        return $this->exTransaction(function ($conn) use ($updates) {
+        return $this->transact(function ($conn) use ($updates) {
             if (empty($updates)) {
                 throw new Exception("No updates provided");
             }
@@ -303,11 +303,11 @@ class Users extends Base // Extend to Database
             $params = array_merge($params, $userIds);
             $types .= str_repeat("i", count($userIds));
 
-            $query = "UPDATE users 
+            $stmt = "UPDATE users 
                     SET " . implode(", ", $cases) . ", updated_at = NOW()
                     WHERE user_id IN ($placeholders) AND deleted_at IS NULL";
 
-            $stmt = $conn->prepare($query);
+            $stmt = $conn->prepare($stmt);
             if (!$stmt) {
                 throw new Exception("Failed to prepare statement: " . $conn->error);
             }
@@ -326,7 +326,7 @@ class Users extends Base // Extend to Database
 
     public function bulkDeleteUsers(array $ids)
     {
-        return $this->exTransaction(function ($conn) use ($ids) {
+        return $this->transact(function ($conn) use ($ids) {
             if (empty($ids)) {
                 throw new Exception("No user IDs provided for deletion");
             }
@@ -334,11 +334,11 @@ class Users extends Base // Extend to Database
             $placeholders = implode(",", array_fill(0, count($ids), "?"));
             $types = str_repeat("i", count($ids));
 
-            $query = "UPDATE users 
+            $stmt = "UPDATE users 
                     SET deleted_at = NOW(), updated_at = NOW() 
                     WHERE user_id IN ($placeholders) AND deleted_at IS NULL";
 
-            $stmt = $conn->prepare($query);
+            $stmt = $conn->prepare($stmt);
             if (!$stmt) {
                 throw new Exception("Failed to prepare statement: " . $conn->error);
             }
@@ -358,83 +358,92 @@ class Users extends Base // Extend to Database
     // ----------------------
     // LOGIN ATTEMPTS
     // ----------------------
-    public function updateLoginAttempts($userId, $failedAttempts, $lockUntil = null, $ipAddress = null, $userAgent = null)
+    public function updateLoginAttempts($userId, $failedAttempts, $lockUntil = null)
     {
-        return $this->exTransaction(function ($conn) use ($userId, $failedAttempts, $lockUntil, $ipAddress, $userAgent) {
-            $query = "
+        return $this->transact(function ($conn) use ($userId, $failedAttempts, $lockUntil) {
+            
+            $stmt = "
                 UPDATE users
                 SET failed_attempts = ?, lock_until = ?, last_ip_address = ?
-                WHERE user_id = ? AND deleted_at IS NULL
-            ";
-            $success = $this->exQuery($conn, $query, "issi", [$failedAttempts, $lockUntil, $ipAddress, $userId]);
+                WHERE user_id = ? AND deleted_at IS NULL";
 
+            $success = $this->fetchData($conn, $stmt, "issi", [$failedAttempts, $lockUntil, Utils::getClientIp(), $userId]);
             if ($success) {
                 $action  = $lockUntil ? 'ACCOUNT_LOCKED' : 'LOGIN_ATTEMPT';
                 $details = $lockUntil ? ['reason' => 'Too many failed attempts'] : ['attempt_count' => $failedAttempts];
-                $this->logUserAction($conn, $userId, $action, $ipAddress, $userAgent, $details);
+                $this->logUserAction($conn, $userId, $action, $details);
             }
 
             return $success;
         });
     }
 
-    public function resetLoginAttempts($userId, $ipAddress = null, $userAgent = null)
+
+    public function resetLoginAttempts($userId)
     {
-        return $this->exTransaction(function ($conn) use ($userId, $ipAddress, $userAgent) {
-            $query = "
+        return $this->transact(function ($conn) use ($userId) {
+           
+            $stmt = "
                 UPDATE users
                 SET failed_attempts = 0, lock_until = NULL
-                WHERE user_id = ? AND deleted_at IS NULL
-            ";
-            $success = $this->exQuery($conn, $query, "i", [$userId]);
+                WHERE user_id = ? AND deleted_at IS NULL";
 
+            $success = $this->fetchData($conn, $stmt, "i", [$userId]);
             if ($success) {
-                $this->logUserAction($conn, $userId, 'ACCOUNT_UNLOCKED', $ipAddress, $userAgent, ['action' => 'Login attempts reset']);
+                $this->logUserAction($conn, $userId, 'ACCOUNT_UNLOCKED', ['action' => 'Login attempts reset']);
             }
 
             return $success;
         });
     }
+
 
     // ----------------------
     // JWT TOKENS
     // ----------------------
-    public function storeTokens($userId, $jwt, $refreshToken, $expire, $refreshExpire, $deviceInfo = null, $ipAddress = null, $userAgent = null)
+
+    // Login
+    public function storeTokens($userId, $jwt, $refreshToken, $expire, $refreshExpire)
     {
-        return $this->exTransaction(function ($conn) use ($userId, $jwt, $refreshToken, $expire, $refreshExpire, $deviceInfo, $ipAddress, $userAgent) {
-            $query = "
+        return $this->transact(function ($conn) use ($userId, $jwt, $refreshToken, $expire, $refreshExpire) {
+            
+            $deviceInfo = Utils::getDeviceInfo();
+            
+            $stmt = "
                 INSERT INTO user_tokens (user_id, jwt_token, refresh_token, token_expiry, refresh_expiry, device_info)
-                VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?)
-            ";
-            $success = $this->exQuery($conn, $query, "issiis", [$userId, $jwt, $refreshToken, $expire, $refreshExpire, $deviceInfo]);
+                VALUES (?, ?, ?, FROM_UNIXTIME(?), FROM_UNIXTIME(?), ?)";
+
+            $success = $this->fetchData($conn, $stmt, "issiis", [$userId, $jwt, $refreshToken, $expire, $refreshExpire, $deviceInfo]);
 
             if ($success) {
                 $update = "
                     UPDATE users
                     SET last_login = NOW(), is_online = 1, last_ip_address = ?
-                    WHERE user_id = ? AND deleted_at IS NULL
-                ";
-                $this->exQuery($conn, $update, "si", [$ipAddress, $userId]);
-                $this->logUserAction($conn, $userId, 'LOGIN', $ipAddress, $userAgent, ['device' => $deviceInfo]);
+                    WHERE user_id = ? AND deleted_at IS NULL";
+
+                $this->fetchData($conn, $update, "si", [Utils::getClientIp(), $userId]);
+                $this->logUserAction($conn, $userId, 'LOGIN', ['action' => 'User logged in', 'device' => $deviceInfo]);
             }
             return $success;
         });
     }
 
-    public function clearTokens($userId, $ipAddress = null, $userAgent = null)
+    // Logout
+    public function clearTokens($userId)
     {
-        return $this->exTransaction(function ($conn) use ($userId, $ipAddress, $userAgent) {
-            $query = "DELETE FROM user_tokens WHERE user_id = ?";
-            $success = $this->exQuery($conn, $query, "i", [$userId]);
+        return $this->transact(function ($conn) use ($userId) {
+
+            $stmt = "DELETE FROM user_tokens WHERE user_id = ?";
+            $success = $this->fetchData($conn, $stmt, "i", [$userId]);
 
             if ($success) {
                 $update = "
                     UPDATE users
                     SET is_online = 0, last_logout = NOW(), last_ip_address = ?
-                    WHERE user_id = ? AND deleted_at IS NULL
-                ";
-                $this->exQuery($conn, $update, "si", [$ipAddress, $userId]);
-                $this->logUserAction($conn, $userId, 'LOGOUT', $ipAddress, $userAgent, ['action' => 'User logged out']);
+                    WHERE user_id = ? AND deleted_at IS NULL";
+
+                $this->fetchData($conn, $update, "si", [Utils::getClientIp(), $userId]);
+                $this->logUserAction($conn, $userId, 'LOGOUT', ['action' => 'User logged out', 'device' => Utils::getDeviceInfo()]);
             }
             return $success;
         });
@@ -442,8 +451,7 @@ class Users extends Base // Extend to Database
 
     public function findByRefreshToken($refreshToken)
     {
-        $conn = Connection::getInstance();
-        $query = "
+        $stmt = "
             SELECT ut.user_id    AS user_id,
                 u.username       AS username,
                 ut.refresh_token AS refresh_token,
@@ -454,51 +462,52 @@ class Users extends Base // Extend to Database
             FROM user_tokens ut
             JOIN users u ON u.user_id = ut.user_id 
             WHERE ut.refresh_token = ?
-            LIMIT 1
-        ";
-        $token = $this->exQuery($conn, $query, "s", [$refreshToken], true);
+            LIMIT 1";
+
+        $conn = Connection::getInstance();
+        $token = $this->fetchData($conn, $stmt, "s", [$refreshToken], true);
         Connection::release($conn);
         return $token;
     }
 
-    public function updateAccessAndRefreshToken($userId, $jwt, $expire, $refreshToken, $refreshExpire, $deviceInfo = null)
+    public function updateAccessAndRefreshToken($userId, $jwt, $expire, $refreshToken, $refreshExpire)
     {
-        return $this->exTransaction(function ($conn) use ($userId, $jwt, $expire, $refreshToken, $refreshExpire, $deviceInfo) {
-            $query = "
+        return $this->transact(function ($conn) use ($userId, $jwt, $expire, $refreshToken, $refreshExpire) {
+
+            $stmt = "
                 UPDATE user_tokens
                 SET jwt_token = ?, token_expiry = FROM_UNIXTIME(?),
                     refresh_token = ?, refresh_expiry = FROM_UNIXTIME(?)
-                WHERE user_id = ? AND device_info = ?
-            ";
-            return $this->exQuery($conn, $query, "sisiis", [$jwt, $expire, $refreshToken, $refreshExpire, $userId, $deviceInfo]);
+                WHERE user_id = ? AND device_info = ?";
+
+            return $this->fetchData($conn, $stmt, "sisiis", [$jwt, $expire, $refreshToken, $refreshExpire, $userId, Utils::getDeviceInfo()]);
         });
     }
 
     // ----------------------
     // ACTIVITY LOGGING
     // ----------------------
-    public function logUserAction($conn, $userId, $actionCode, $ipAddress = null, $userAgent = null, $details = null)
-    {
-        $query = "
+    public function logUserAction($conn, $userId, $actionCode, $details = null)
+    {                 
+        $stmt = "
             SELECT status_id
             FROM statuses
             WHERE status_code = ? AND category = 'USER_ACTION' AND is_active = 1
-            LIMIT 1
-        ";
-        $status = $this->exQuery($conn, $query, "s", [$actionCode], true);
+            LIMIT 1";
 
+        $status = $this->fetchData($conn, $stmt, "s", [$actionCode], true);
         if (!$status) {
-            error_log("Warning: Invalid action code '$actionCode' for user_id $userId");
+            //error_log("Warning: Invalid action code '$actionCode' for user_id $userId");
             return false;
         }
 
-        $detailsJson = $details ? json_encode($details) : null;
+        $detailsJson = $details ? json_encode($details, JSON_UNESCAPED_SLASHES) : null;
 
         $insert = "
             INSERT INTO user_activity_logs (user_id, status_id, ip_address, user_agent, details)
-            VALUES (?, ?, ?, ?, ?)
-        ";
-        return $this->exQuery($conn, $insert, "iisss", [$userId, $status['status_id'], $ipAddress, $userAgent, $detailsJson]);
+            VALUES (?, ?, ?, ?, ?)";
+
+        return $this->fetchData($conn, $insert, "iisss", [$userId, $status['status_id'],  Utils::getClientIp(), Utils::getUserAgent(), $detailsJson]);
     }
 
     public function getUserActivity($userId, $limit = 50, $page = 1)
@@ -506,16 +515,16 @@ class Users extends Base // Extend to Database
         $offset = ($page - 1) * $limit;
         $conn = Connection::getInstance();
 
-        $query = "
+        $stmt = "
             SELECT l.log_id, l.user_id, s.status_code, s.display_name AS action_name,
                    l.ip_address, l.user_agent, l.action_timestamp, l.details
             FROM user_activity_logs l
             JOIN statuses s ON l.status_id = s.status_id
             WHERE l.user_id = ?
             ORDER BY l.action_timestamp DESC
-            LIMIT ? OFFSET ?
-        ";
-        $logs = $this->exQuery($conn, $query, "iii", [$userId, $limit, $offset]);
+            LIMIT ? OFFSET ?";
+
+        $logs = $this->fetchData($conn, $stmt, "iii", [$userId, $limit, $offset]);
         Connection::release($conn);
 
         $total = $this->getActivityTotalCount($userId);
@@ -530,8 +539,8 @@ class Users extends Base // Extend to Database
     public function getTotalCount()
     {
         $conn = Connection::getInstance();
-        $query = "SELECT COUNT(*) as total FROM users WHERE deleted_at IS NULL AND is_active = 1";
-        $row = $this->exQuery($conn, $query, "", [], true);
+        $stmt = "SELECT COUNT(*) as total FROM users WHERE deleted_at IS NULL AND is_active = 1";
+        $row = $this->fetchData($conn, $stmt, "", [], true);
         Connection::release($conn);
         return (int)$row['total'];
     }
@@ -539,8 +548,8 @@ class Users extends Base // Extend to Database
     public function getActivityTotalCount($userId)
     {
         $conn = Connection::getInstance();
-        $query = "SELECT COUNT(*) as total FROM user_activity_logs WHERE user_id = ?";
-        $row = $this->exQuery($conn, $query, "i", [$userId], true);
+        $stmt = "SELECT COUNT(*) as total FROM user_activity_logs WHERE user_id = ?";
+        $row = $this->fetchData($conn, $stmt, "i", [$userId], true);
         Connection::release($conn);
         return (int)$row['total'];
     }

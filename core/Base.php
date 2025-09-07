@@ -19,7 +19,7 @@ abstract class Base
      * @return array|null|bool The query result (array for SELECT, bool for others).
      * @throws RuntimeException If the query fails.
      */
-    protected function exQuery(mysqli $conn, string $query, string $types = '', array $params = [], bool $single = false): array|bool|null
+    protected function fetchData(mysqli $conn, string $query, string $types = '', array $params = [], bool $single = false): array|bool|null
     {
         if ($conn->connect_error) {
             throw new RuntimeException('Database connection failed: ' . $conn->connect_error);
@@ -43,6 +43,7 @@ abstract class Base
             throw new RuntimeException('Query execution failed: ' . $stmt->error);
         }
 
+        // If query has result (SELECT)
         if ($stmt->result_metadata()) {
             $result = $stmt->get_result();
             if (!$result) {
@@ -54,7 +55,9 @@ abstract class Base
             return $data;
         }
 
-        return $stmt->affected_rows > 0;
+        // For non-SELECT queries (UPDATE/INSERT/DELETE)
+        // Return true if execution succeeds, regardless of affected rows
+        return true;
     }
 
      /**
@@ -66,7 +69,7 @@ abstract class Base
      * @throws InvalidArgumentException If the task is invalid or query format is incorrect.
      * @throws RuntimeException If the transaction fails to begin, commit, or execute.
      */
-    protected function exTransaction(callable|array $task): mixed
+    protected function transact(callable|array $task): mixed
     {
         $conn = Connection::getInstance();
 
@@ -74,7 +77,7 @@ abstract class Base
             Connection::markTransactionStart($conn);
 
             if (!$conn->begin_transaction()) {
-                throw new RuntimeException('Failed to begin transaction: ' . $conn->error);
+                throw new RuntimeException('Database Failed to begin transaction: ' . $conn->error);
             }
 
             $result = null;
@@ -93,15 +96,16 @@ abstract class Base
                     if (!is_string($query['sql']) || !is_string($query['types']) || !is_array($query['params'])) {
                         throw new InvalidArgumentException("Invalid query format at index $index: 'sql' and 'types' must be strings, 'params' must be an array.");
                     }
-                    $this->exQuery($conn, $query['sql'], $query['types'], $query['params']);
+                    $this->fetchData($conn, $query['sql'], $query['types'], $query['params']);
                 }
                 $result = true;
+            
             } else {
                 throw new InvalidArgumentException('Task must be a callable or an array of queries.');
             }
 
             if (!$conn->commit()) {
-                throw new RuntimeException('Failed to commit transaction: ' . $conn->error);
+                throw new RuntimeException('Database Failed to commit transaction: ' . $conn->error);
             }
 
             return $result;
@@ -173,4 +177,5 @@ abstract class Base
             'to'            => min($currentPage * $limit, $totalRecords)
         ];
     }
+
 }

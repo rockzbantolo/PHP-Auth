@@ -10,6 +10,15 @@
         'dev' => true,
     ),
     'versions' => array(
+        'composer/ca-bundle' => array(
+            'pretty_version' => '1.5.8',
+            'version' => '1.5.8.0',
+            'reference' => '719026bb30813accb68271fee7e39552a58e9f65',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/./ca-bundle',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
         'firebase/php-jwt' => array(
             'pretty_version' => 'v6.11.1',
             'version' => '6.11.1.0',
@@ -70,6 +79,15 @@
             'reference' => '0cc9dd0f17f61d8131e7df6b84bd344899fe2608',
             'type' => 'library',
             'install_path' => __DIR__ . '/../symfony/polyfill-php80',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
+        'ua-parser/uap-php' => array(
+            'pretty_version' => 'v3.10.0',
+            'version' => '3.10.0.0',
+            'reference' => 'f44bdd1b38198801cf60b0681d2d842980e47af5',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../ua-parser/uap-php',
             'aliases' => array(),
             'dev_requirement' => false,
         ),

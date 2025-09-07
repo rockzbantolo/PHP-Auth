@@ -10,11 +10,8 @@ use Mws\Core\Routes;
 
 Env::InitEnv('./.env');
 Cors::InitCors();
-
 // Ensures token is valid if token is expired client must call the refresh token.
-//Auth::JWToken();
-//Auth::InitApiKeyAuth();
-//$auth['jwt']['user_id'];
+//Auth::Token($_SERVER['REMOTE_ADDR']);
 
 // Initialize router
 [$router, $method, $path] = Request::initRouter();

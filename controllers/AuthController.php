@@ -1,5 +1,4 @@
 <?php
-
 namespace Mws\Controllers;
 
 use Mws\Models\Users;
@@ -7,19 +6,20 @@ use Mws\Helpers\Response;
 use Mws\Helpers\Utils;
 use Mws\Helpers\Token;
 use Mws\Core\StatusCode;
+use InvalidArgumentException;
 use Throwable;
 use Exception;
-use InvalidArgumentException;
+
 
 class AuthController
 {
-    private Users $userModel;
+    private Users $model;
     private $maxAttempts = 5;
     private $lockDurationMinutes = 15;
 
     public function __construct()
     {
-        $this->userModel = new Users();
+        $this->model = new Users();
     }
 
     public function getAllUsers()
@@ -32,7 +32,7 @@ class AuthController
                 return Response::error("Invalid page or limit", StatusCode::BAD_REQUEST);
             }
 
-            $result = $this->userModel->findAllUsers((int)$page, (int)$limit);
+            $result = $this->model->findAllUsers((int)$page, (int)$limit);
 
             return Response::success(
                 $result['data'],
@@ -52,7 +52,7 @@ class AuthController
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
             }
 
-            $user = $this->userModel->findUserById($id);
+            $user = $this->model->findUserById($id);
             return $user
                 ? Response::success($user, "User found")
                 : Response::notFound("User with ID $id not found");
@@ -65,7 +65,7 @@ class AuthController
     public function registerUser($data)
     {
         try {
-
+            
             $errors = Utils::requireFields($data, ['username', 'password', 'email']);
             if (!empty($errors)) {
                 return Response::validationError($errors, "Validation failed", StatusCode::UNPROCESSABLE_ENTITY);
@@ -75,18 +75,19 @@ class AuthController
                 return Response::error("Invalid email format", StatusCode::BAD_REQUEST);
             }
 
-            if ($this->userModel->findByUsername($data['username'])) {
+            // can combine username and email for 1 checking only
+            if ($this->model->findByUsername($data['username'])) {
                 return Response::error("Username already taken", StatusCode::CONFLICT);
             }
 
-            if ($this->userModel->findByEmail($data['email'])) {
+            if ($this->model->findByEmail($data['email'])) {
                 return Response::error("Email already taken", StatusCode::CONFLICT);
             }
 
             $data['password_hash'] = Utils::hashPassword($data['password']);
             unset($data['password']);
 
-            $result = $this->userModel->createUser($data);
+            $result = $this->model->createUser($data);
 
             return $result['success']
                 ? Response::success(['id' => $result['id']], "User created successfully", StatusCode::CREATED)
@@ -106,7 +107,7 @@ class AuthController
             }
 
             if (isset($data['username'])) {
-                $user = $this->userModel->findByUsername($data['username']);
+                $user = $this->model->findByUsername($data['username']);
                 if ($user && (int)$user['user_id'] !== (int)$id) {
                     return Response::error("Username is not available", StatusCode::CONFLICT);
                 }
@@ -121,7 +122,7 @@ class AuthController
                 unset($data['password']);
             }
 
-            $result = $this->userModel->updateUser($id, $data);
+            $result = $this->model->updateUser($id, $data);
             return $result
                 ? Response::success([], "User updated successfully")
                 : Response::error("User update failed or user not found", StatusCode::NOT_FOUND);
@@ -139,7 +140,7 @@ class AuthController
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
             }
 
-            $result = $this->userModel->deleteUser($id);
+            $result = $this->model->deleteUser($id);
             return $result['success']
                 ? Response::success([], "User soft-deleted successfully")
                 : Response::error("User deletion failed or user not found", StatusCode::NOT_FOUND);
@@ -159,7 +160,7 @@ class AuthController
             }
 
             // GET DETAILS
-            $user = $this->userModel->findByUsername($data['username']);
+            $user = $this->model->findByUsername($data['username']);
             if (!$user) {
                 return Response::error("Invalid credentials", StatusCode::UNAUTHORIZED);
             }
@@ -192,18 +193,17 @@ class AuthController
 
             // VERIFY PASSWORD
             if (!password_verify($data['password'], $user['password_hash'])) {
+                
                 $failedAttempts = $user['failed_attempts'] + 1;
                 $lockUntil = $failedAttempts >= $this->maxAttempts
                     ? date('Y-m-d H:i:s', strtotime("+{$this->lockDurationMinutes} minutes"))
                     : null;
 
                 // RECORD ATTEMPS
-                $this->userModel->updateLoginAttempts(
+                $this->model->updateLoginAttempts(
                     $user['user_id'],
                     $failedAttempts,
-                    $lockUntil,
-                    $data['ip_address'] ?? null,
-                    $data['user_agent'] ?? null
+                    $lockUntil
                 );
 
                 // ALERT MESSAGE
@@ -221,11 +221,7 @@ class AuthController
             }
 
             // RESET ATTEMPS
-            $this->userModel->resetLoginAttempts(
-                $user['user_id'],
-                $data['ip_address'] ?? null,
-                $data['user_agent'] ?? null
-            );
+            $this->model->resetLoginAttempts($user['user_id']);
 
             // GENERATE/SAVE TOKEN
             try{
@@ -235,15 +231,13 @@ class AuthController
                 return Response::error("Failed to generate tokens", StatusCode::INTERNAL_SERVER_ERROR, $e);
             }
 
-            $this->userModel->storeTokens(
+            $this->model->storeTokens(
                 $user['user_id'],
                 $access['token'],
                 $refresh['token'],
                 $access['expires_at'],
                 $refresh['expires_at'],
-                $data['device_info'] ?? null,
-                $data['ip_address'] ?? null,
-                $data['user_agent'] ?? null
+                $data['device_info'] ?? null
             );
 
             return Response::success(
@@ -276,9 +270,7 @@ class AuthController
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
             }
 
-            $ipAddress = $_SERVER['REMOTE_ADDR'] ?? null;
-            $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? null;
-            $success = $this->userModel->clearTokens($userId, $ipAddress, $userAgent);
+            $success = $this->model->clearTokens($userId);
 
             return $success
                 ? Response::success([], "Logout successful")
@@ -291,7 +283,7 @@ class AuthController
     public function refreshToken($data)
     {
         try {
-            $tokenData = $this->userModel->findByRefreshToken($data['refresh_token']);
+            $tokenData = $this->model->findByRefreshToken($data['refresh_token']);
             if (!$tokenData) {
                 Response::error("Invalid refresh token", StatusCode::UNAUTHORIZED);
             }
@@ -303,7 +295,7 @@ class AuthController
             $access  = Token::generateAccessToken($tokenData['user_id'], $tokenData['username']);
             $refresh = Token::generateRefreshToken();
 
-            $success = $this->userModel->updateAccessAndRefreshToken(
+            $success = $this->model->updateAccessAndRefreshToken(
                 $tokenData['user_id'],
                 $access['token'],
                 $access['expires_at'],
@@ -340,7 +332,7 @@ class AuthController
                 return Response::error("Invalid page or limit", StatusCode::BAD_REQUEST);
             }
 
-            $result = $this->userModel->getUserActivity($userId, (int)$limit, (int)$page);
+            $result = $this->model->getUserActivity($userId, (int)$limit, (int)$page);
 
             return Response::success(
                 $result['data'],
@@ -376,10 +368,10 @@ class AuthController
                 }
 
                 // Check for duplicates
-                if ($this->userModel->findByUsername($item['username'])) {
+                if ($this->model->findByUsername($item['username'])) {
                     return Response::error("Username {$item['username']} already exists", StatusCode::CONFLICT);
                 }
-                if ($this->userModel->findByEmail($item['email'])) {
+                if ($this->model->findByEmail($item['email'])) {
                     return Response::error("Email {$item['email']} already exists", StatusCode::CONFLICT);
                 }
 
@@ -391,7 +383,7 @@ class AuthController
             }
 
             // Call model bulk insert
-            $result = $this->userModel->bulkCreateUsers($users);
+            $result = $this->model->bulkCreateUsers($users);
 
             return Response::success(
                 $result,
@@ -441,11 +433,11 @@ class AuthController
 
             // 🔹 Use bulk update for large sets, else fall back to per-user update
             if (count($prepared) > 5) {
-                $affected = $this->userModel->bulkUpdateUsers($prepared);
+                $affected = $this->model->bulkUpdateUsers($prepared);
                 return Response::success(['affected' => $affected], "Bulk update complete");
             } else {
                 foreach ($prepared as $item) {
-                    $ok = $this->userModel->updateUser($item['id'], $item);
+                    $ok = $this->model->updateUser($item['id'], $item);
                     $results[] = ['id' => $item['id'], 'success' => $ok];
                 }
                 return Response::success($results, "Batch update complete");
@@ -475,7 +467,7 @@ class AuthController
                 return Response::error("No valid user IDs provided", StatusCode::BAD_REQUEST);
             }
 
-            $affected = $this->userModel->bulkDeleteUsers($ids);
+            $affected = $this->model->bulkDeleteUsers($ids);
 
             return Response::success(
                 ['deleted' => $affected],

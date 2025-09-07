@@ -6,12 +6,17 @@ use Mws\Core\StatusCode;
 use Mws\Helpers\Token;
 use Mws\Core\Connection;
 
+use mysqli;
+use DateTime;
 
 class Auth
 {
     private static string $validUser = 'Rockz';
     private static string $validPass = '122190';
     private static string $validApiKey = '1234567890abcdef';
+    private static int $limit = 100;        // Max requests
+    private static int $windowSeconds = 60; // Per minute
+
 
     public static function BasicAuth(): void
     {
@@ -50,8 +55,17 @@ class Auth
         }
     }
 
+    public static function Token(string $ip): array
+    {
+        $auth = self::JWToken(); 
+        $userId = $auth['jwt']['user_id'] ?? null;
+        self::rateLimit($userId, $ip);
+
+        return $auth;
+    }
+
     // JWT Authentication
-    public static function JWToken(): array
+    private static function JWToken(): array
     {
         $headers = getallheaders();
         $authHeader = $headers['Authorization'] ?? '';
@@ -99,4 +113,43 @@ class Auth
         ];
     }
 
+    private static function rateLimit(?int $userId, string $ip): void
+    {
+        $conn = Connection::getInstance();
+
+        $windowStart = (new DateTime())->setTimestamp(
+            floor(time() / self::$windowSeconds) * self::$windowSeconds
+        )->format('Y-m-d H:i:s');
+
+        // Try fetch current request count
+        $stmt = $conn->prepare(
+            "SELECT request_count FROM rate_limits WHERE user_id <=> ? AND ip_address = ? AND window_start = ?"
+        );
+        $stmt->bind_param("iss", $userId, $ip, $windowStart);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+
+        if ($result) {
+            if ($result['request_count'] >= self::$limit) {
+                http_response_code(429);
+                die(json_encode(["error" => "Rate limit exceeded. Try again later."]));
+            }
+
+            $stmt = $conn->prepare(
+                "UPDATE rate_limits SET request_count = request_count + 1 
+                WHERE user_id <=> ? AND ip_address = ? AND window_start = ?"
+            );
+            $stmt->bind_param("iss", $userId, $ip, $windowStart);
+            $stmt->execute();
+        } else {
+            $stmt = $conn->prepare(
+                "INSERT INTO rate_limits (user_id, ip_address, request_count, window_start) 
+                VALUES (?, ?, 1, ?)"
+            );
+            $stmt->bind_param("iss", $userId, $ip, $windowStart);
+            $stmt->execute();
+        }
+
+        Connection::release($conn);
+    }
 }
