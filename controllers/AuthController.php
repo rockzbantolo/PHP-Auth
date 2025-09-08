@@ -62,10 +62,10 @@ class AuthController
         }
     }
 
-    public function registerUser($data)
+    public function registerUser(array $data): array
     {
         try {
-            
+            // Validate input
             $errors = Utils::requireFields($data, ['username', 'password', 'email']);
             if (!empty($errors)) {
                 return Response::validationError($errors, "Validation failed", StatusCode::UNPROCESSABLE_ENTITY);
@@ -75,46 +75,42 @@ class AuthController
                 return Response::error("Invalid email format", StatusCode::BAD_REQUEST);
             }
 
-            // can combine username and email for 1 checking only
-            if ($this->model->findByUsername($data['username'])) {
-                return Response::error("Username already taken", StatusCode::CONFLICT);
-            }
-
-            if ($this->model->findByEmail($data['email'])) {
-                return Response::error("Email already taken", StatusCode::CONFLICT);
-            }
-
+            // Hash password and remove plaintext
             $data['password_hash'] = Utils::hashPassword($data['password']);
             unset($data['password']);
 
+            // Create user
             $result = $this->model->createUser($data);
 
-            return $result['success']
-                ? Response::success(['id' => $result['id']], "User created successfully", StatusCode::CREATED)
-                : Response::error("User creation failed", StatusCode::INTERNAL_SERVER_ERROR);
-                
+            if (!$result['success']) {
+                $statusCode = match ($result['error']) {
+                    'Username is already taken', 'Email is already in use' => StatusCode::CONFLICT,
+                    default => StatusCode::INTERNAL_SERVER_ERROR
+                };
+                return Response::error($result['error'], $statusCode);
+            }
+
+            return Response::success(
+                $result['data'],
+                "User created successfully",
+                StatusCode::CREATED
+            );
         } catch (Throwable $e) {
-            return Response::error("Failed to create user", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
+            return Response::error("Failed to register user", StatusCode::INTERNAL_SERVER_ERROR, $e);
         }
     }
 
-    public function updateUserById($id, $data)
+    public function updateUserById(int $id, array $data)
     {
         try {
-
             if (!Utils::validateId($id)) {
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
             }
 
-            if (isset($data['username'])) {
-                $user = $this->model->findByUsername($data['username']);
-                if ($user && (int)$user['user_id'] !== (int)$id) {
-                    return Response::error("Username is not available", StatusCode::CONFLICT);
+            if (isset($data['email'])) {
+                if (!Utils::validateEmail($data['email'])) {
+                    return Response::error("Invalid email format", StatusCode::BAD_REQUEST);
                 }
-            }
-
-            if (isset($data['email']) && !Utils::validateEmail($data['email'])) {
-                return Response::error("Invalid email format", StatusCode::BAD_REQUEST);
             }
 
             if (isset($data['password'])) {
@@ -123,12 +119,24 @@ class AuthController
             }
 
             $result = $this->model->updateUser($id, $data);
-            return $result
-                ? Response::success([], "User updated successfully")
-                : Response::error("User update failed or user not found", StatusCode::NOT_FOUND);
 
+            if ($result['success']) {
+                return Response::success([], "User updated successfully");
+            }
+
+            $statusCode = match ($result['error']) {
+                'Username is already taken', 'Email is already in use' => StatusCode::CONFLICT,
+                'User not found or no changes applied' => StatusCode::NOT_FOUND,
+                default => StatusCode::INTERNAL_SERVER_ERROR
+            };
+
+            return Response::error($result['error'], $statusCode);
         } catch (Throwable $e) {
-            return Response::error("Failed to update user", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
+            return Response::error(
+                "Failed to update user",
+                StatusCode::INTERNAL_SERVER_ERROR,
+                $e->getMessage()
+            );
         }
     }
 
@@ -150,37 +158,31 @@ class AuthController
         }
     }
 
-    public function login($data)
+    public function login($data): array
     {
         try {
-            // VALIDATION
+            // Validation
             $errors = Utils::requireFields($data, ['username', 'password']);
             if (!empty($errors)) {
                 return Response::validationError($errors, "Validation failed", StatusCode::UNPROCESSABLE_ENTITY);
             }
 
-            // GET DETAILS
+            // Get user
             $user = $this->model->findByUsername($data['username']);
-            if (!$user) {
-                return Response::error("Invalid credentials", StatusCode::UNAUTHORIZED);
+            if ($user === null || !password_verify($data['password'], $user['password_hash'])) {
+                return $this->handleInvalidCredentials($user);
             }
 
-            // CHECK REMOVAL
-            if ($user['deleted_at'] !== null) {
-                return Response::error("Your account has been removed. Please contact the administrator.", StatusCode::FORBIDDEN);
+            // Check account status
+            if (!empty($user['deleted_at'])) {
+                return Response::error("Your account has been deleted. Contact system admin", StatusCode::FORBIDDEN);
             }
-
-            // CHECK APPROVAL
-            if ($user['is_approved'] == 0) {
-                return Response::error("Your account is not approved yet.", StatusCode::FORBIDDEN);
+            if (!$user['is_approved']) {
+                return Response::error("Your account is not approved yet. Contact system admin", StatusCode::FORBIDDEN);
             }
-
-            // CHECK STATUS
-            if ($user['is_online'] == 1) {
+            if ($user['is_online']) {
                 return Response::error("User already logged in on another device", StatusCode::FORBIDDEN);
             }
-
-            // CHECK ACCOUNT LOCK
             if (!empty($user['lock_until']) && strtotime($user['lock_until']) > time()) {
                 $formattedRemaining = Utils::formatRemainingLockTime($user['lock_until']);
                 return Response::error(
@@ -190,47 +192,14 @@ class AuthController
                     ['remaining_attempts' => 0]
                 );
             }
-
-            // VERIFY PASSWORD
-            if (!password_verify($data['password'], $user['password_hash'])) {
-                
-                $failedAttempts = $user['failed_attempts'] + 1;
-                $lockUntil = $failedAttempts >= $this->maxAttempts
-                    ? date('Y-m-d H:i:s', strtotime("+{$this->lockDurationMinutes} minutes"))
-                    : null;
-
-                // RECORD ATTEMPS
-                $this->model->updateLoginAttempts(
-                    $user['user_id'],
-                    $failedAttempts,
-                    $lockUntil
-                );
-
-                // ALERT MESSAGE
-                $remainingAttempts = Utils::remainingAttempts($failedAttempts, $this->maxAttempts);
-                $message = $lockUntil
-                    ? "Account locked Try again later: " . date('H:i', strtotime($lockUntil))
-                    : "Invalid credentials. $remainingAttempts attempts remaining";
-
-                return Response::error(
-                    $message,
-                    $lockUntil ? StatusCode::FORBIDDEN : StatusCode::UNAUTHORIZED,
-                    null,
-                    ['remaining_attempts' => $remainingAttempts]
-                );
+            // Reset attempts if needed
+            if ($user['failed_attempts'] > 0 || !empty($user['lock_until'])) {
+                $this->model->resetLoginAttempts($user['user_id']);
             }
 
-            // RESET ATTEMPS
-            $this->model->resetLoginAttempts($user['user_id']);
-
-            // GENERATE/SAVE TOKEN
-            try{
-                $access = Token::generateAccessToken($user['user_id'], $user['username']);
-                $refresh = Token::generateRefreshToken();
-            } catch (Exception $e) {
-                return Response::error("Failed to generate tokens", StatusCode::INTERNAL_SERVER_ERROR, $e);
-            }
-
+            // Generate and store tokens
+            $access = Token::generateAccessToken($user['user_id'], $user['username']);
+            $refresh = Token::generateRefreshToken();
             $this->model->storeTokens(
                 $user['user_id'],
                 $access['token'],
@@ -242,21 +211,20 @@ class AuthController
 
             return Response::success(
                 [
-                    'user_id'   => $user['user_id'],
-                    'username'  => $user['username'],
-                    'access_token'  => $access['token'],
+                    'user_id' => $user['user_id'],
+                    'username' => $user['username'],
+                    'access_token' => $access['token'],
                     'refresh_token' => $refresh['token'],
-                    'expires_in'    => $access['expires_at'],
-                    'refresh_expires_in' => $refresh['expires_at'] - time() 
+                    'expires_in' => $access['expires_at'],
+                    'refresh_expires_in' => $refresh['expires_at'] - time()
                 ],
                 "Welcome {$user['username']}",
                 StatusCode::OK
             );
-
+            
         } catch (InvalidArgumentException $e) {
             return Response::validationError(['input' => $e->getMessage()], "Validation failed", StatusCode::UNPROCESSABLE_ENTITY);
         } catch (Exception $e) {
-            //error_log("Error during login: " . $e->getMessage());
             return Response::error("Failed to process login", StatusCode::INTERNAL_SERVER_ERROR, $e);
         }
     }
@@ -264,17 +232,18 @@ class AuthController
     public function logout($data)
     {
         try {
-            $userId = $data['user_id'] ?? null;
+            $userId = isset($data['user_id']) ? (int)$data['user_id'] : null;
 
+            /* For JWT Auth
             if (!Utils::validateId($userId)) {
                 return Response::error("Invalid user ID", StatusCode::BAD_REQUEST);
-            }
+            }*/
 
             $success = $this->model->clearTokens($userId);
 
-            return $success
+            return $success['success']
                 ? Response::success([], "Logout successful")
-                : Response::error("Logout failed or locked account", StatusCode::NOT_FOUND);
+                : Response::error($success['message'] ?? "Logout failed or user already offline", StatusCode::NOT_FOUND);
         } catch (Throwable $e) {
             return Response::error("Failed to logout", StatusCode::INTERNAL_SERVER_ERROR, $e->getMessage());
         }
@@ -283,6 +252,7 @@ class AuthController
     public function refreshToken($data)
     {
         try {
+            
             $tokenData = $this->model->findByRefreshToken($data['refresh_token']);
             if (!$tokenData) {
                 Response::error("Invalid refresh token", StatusCode::UNAUTHORIZED);
@@ -479,4 +449,31 @@ class AuthController
         }
     }
 
+    /**
+     * Handle invalid credentials (user not found or wrong password).
+     */
+    private function handleInvalidCredentials(?array $user): array
+    {
+        $userId = $user['user_id'] ?? null;
+        $failedAttempts = ($user['failed_attempts'] ?? 0) + 1;
+        $lockUntil = $failedAttempts >= $this->maxAttempts
+            ? date('Y-m-d H:i:s', strtotime("+{$this->lockDurationMinutes} minutes"))
+            : null;
+
+        if ($userId) {
+            $this->model->updateLoginAttempts($userId, $failedAttempts, $lockUntil);
+        }
+
+        $remainingAttempts = Utils::remainingAttempts($failedAttempts, $this->maxAttempts);
+        $message = $lockUntil
+            ? "Account locked. Try again later: " . date('H:i', strtotime($lockUntil))
+            : "Invalid credentials. $remainingAttempts attempts remaining";
+
+        return Response::error(
+            $message,
+            $lockUntil ? StatusCode::FORBIDDEN : StatusCode::UNAUTHORIZED,
+            null,
+            ['remaining_attempts' => $remainingAttempts]
+        );
+    }
 }

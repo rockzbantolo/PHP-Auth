@@ -79,6 +79,7 @@ class Response
                 $response['debug'] = [
                     'code'         => $exception->getCode(),
                     'type'         => get_class($exception),
+                    'message'      => $exception->getMessage(), 
                     'file'         => str_replace('\\', '/', $exception->getFile()),
                     'line'         => $exception->getLine(),
                     'memory_usage' => self::formatBytes(memory_get_usage(true)),
