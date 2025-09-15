@@ -1,7 +1,7 @@
 <?php
-namespace Mws\Helpers;
+namespace Svm\Helpers;
 
-use Mws\Core\Router;
+use Svm\Core\Router;
 
 class Request
 {

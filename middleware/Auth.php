@@ -1,20 +1,23 @@
 <?php
-namespace Mws\Middleware;
+namespace Svm\Middleware;
 
-use Mws\Helpers\Response;
-use Mws\Core\StatusCode;
-use Mws\Helpers\Token;
-use Mws\Core\Connection;
+use Svm\Helpers\Response;
+use Svm\Core\RespCode;
+use Svm\Helpers\Token;
+use Svm\Core\Connection;
+use Doctrine\DBAL\ParameterType;
 
-use mysqli;
 use DateTime;
+use Throwable;
 
 class Auth
 {
     private static string $validUser = 'Rockz';
     private static string $validPass = '122190';
     private static string $validApiKey = '1234567890abcdef';
-    private static int $limit = 100;        // Max requests
+
+    // Rate Limit
+    private static int $limit = 300;        // Max requests
     private static int $windowSeconds = 60; // Per minute
 
 
@@ -64,14 +67,18 @@ class Auth
         return $auth;
     }
 
-    // JWT Authentication
+    /**
+     * Validates JWT and retrieves associated user token data.
+     *
+     * @return array{ jwt: array, record: array|null } Decoded JWT payload and database record
+     */
     private static function JWToken(): array
     {
         $headers = getallheaders();
         $authHeader = $headers['Authorization'] ?? '';
 
         if (!$authHeader || !preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
-            Response::error("Missing or invalid Authorization header", StatusCode::UNAUTHORIZED)->send();
+            Response::error('Missing or invalid Authorization header', RespCode::UNAUTHORIZED)->send();
             exit;
         }
 
@@ -80,76 +87,105 @@ class Auth
         // Decode & validate signature
         $payload = Token::decode($jwt);
         if (!$payload) {
-            Response::error("Invalid or expired token", StatusCode::UNAUTHORIZED)->send();
+            Response::error('Invalid or expired token', RespCode::UNAUTHORIZED)->send();
             exit;
         }
 
-        // Open DB connection via your Connection class
+        // Get DB connection
         $conn = Connection::getInstance();
 
-        $stmt = $conn->prepare("
-            SELECT *
-            FROM user_tokens
-            WHERE jwt_token = ?
-              AND token_expiry > NOW()
-            LIMIT 1
-        ");
+        // Prepare query
+        $sql = 'SELECT *
+                FROM user_tokens
+                WHERE jwt_token = ?
+                AND token_expiry > NOW()
+                LIMIT 1';
 
-        $stmt->bind_param("s", $jwt);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
+        try {
+            $result = $conn->executeQuery($sql, [$jwt], [ParameterType::STRING])->fetchAssociative();
 
-        if (!$result) {
-            Response::error("Token not found or expired", StatusCode::UNAUTHORIZED)->send();
+            if (!$result) {
+                Response::error('Token not found or expired', RespCode::UNAUTHORIZED)->send();
+                exit;
+            }
+
+            return [
+                'jwt' => $payload,
+                'record' => $result
+            ];
+        } catch (\Exception $e) {
+            Response::error('Database error: ' . $e->getMessage(), RespCode::INTERNAL_SERVER_ERROR)->send();
             exit;
         }
-
-        // Optionally release connection if you're caching
-        Connection::release($conn);
-
-        return [
-            'jwt'    => $payload,   // decoded JWT
-            'record' => $result     // DB row
-        ];
     }
 
+    /**
+     * Enforces rate limiting based on user ID and IP address.
+     *
+     * @param int|null $userId User ID (nullable)
+     * @param string $ip IP address
+     */
     private static function rateLimit(?int $userId, string $ip): void
     {
         $conn = Connection::getInstance();
 
+        $windowSeconds = self::$windowSeconds ?? 60; // Default to 60 seconds
+        $limit = self::$limit ?? 100; // Default to 100 requests
+
         $windowStart = (new DateTime())->setTimestamp(
-            floor(time() / self::$windowSeconds) * self::$windowSeconds
+            floor(time() / $windowSeconds) * $windowSeconds
         )->format('Y-m-d H:i:s');
 
         // Try fetch current request count
-        $stmt = $conn->prepare(
-            "SELECT request_count FROM rate_limits WHERE user_id <=> ? AND ip_address = ? AND window_start = ?"
-        );
-        $stmt->bind_param("iss", $userId, $ip, $windowStart);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
+        $sqlSelect = 'SELECT request_count
+                      FROM rate_limits
+                      WHERE user_id IS ? AND ip_address = ? AND window_start = ?';
 
-        if ($result) {
-            if ($result['request_count'] >= self::$limit) {
-                http_response_code(429);
-                die(json_encode(["error" => "Rate limit exceeded. Try again later."]));
+        try {
+            $result = $conn->executeQuery(
+                $sqlSelect,
+                [$userId, $ip, $windowStart],
+                [
+                    $userId === null ? ParameterType::NULL : ParameterType::INTEGER,
+                    ParameterType::STRING,
+                    ParameterType::STRING
+                ]
+            )->fetchAssociative();
+
+            if ($result && $result['request_count'] >= $limit) {
+                Response::error('Rate limit exceeded. Try again later.', RespCode::TOO_MANY_REQUESTS)->send();
+                exit;
             }
 
-            $stmt = $conn->prepare(
-                "UPDATE rate_limits SET request_count = request_count + 1 
-                WHERE user_id <=> ? AND ip_address = ? AND window_start = ?"
-            );
-            $stmt->bind_param("iss", $userId, $ip, $windowStart);
-            $stmt->execute();
-        } else {
-            $stmt = $conn->prepare(
-                "INSERT INTO rate_limits (user_id, ip_address, request_count, window_start) 
-                VALUES (?, ?, 1, ?)"
-            );
-            $stmt->bind_param("iss", $userId, $ip, $windowStart);
-            $stmt->execute();
+            if ($result) {
+                $sqlUpdate = 'UPDATE rate_limits
+                              SET request_count = request_count + 1
+                              WHERE user_id IS ? AND ip_address = ? AND window_start = ?';
+                $conn->executeStatement(
+                    $sqlUpdate,
+                    [$userId, $ip, $windowStart],
+                    [
+                        $userId === null ? ParameterType::NULL : ParameterType::INTEGER,
+                        ParameterType::STRING,
+                        ParameterType::STRING
+                    ]
+                );
+            } else {
+                $sqlInsert = 'INSERT INTO rate_limits (user_id, ip_address, request_count, window_start)
+                              VALUES (?, ?, 1, ?)';
+                $conn->executeStatement(
+                    $sqlInsert,
+                    [$userId, $ip, $windowStart],
+                    [
+                        $userId === null ? ParameterType::NULL : ParameterType::INTEGER,
+                        ParameterType::STRING,
+                        ParameterType::STRING
+                    ]
+                );
+            }
+        } catch (Throwable $e) {
+            Response::error('Database error: ' . $e->getMessage(), RespCode::INTERNAL_SERVER_ERROR)->send();
+            exit;
         }
-
-        Connection::release($conn);
     }
 }

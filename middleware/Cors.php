@@ -1,5 +1,5 @@
 <?php
-namespace Mws\Middleware;
+namespace Svm\Middleware;
 
 class Cors {
 

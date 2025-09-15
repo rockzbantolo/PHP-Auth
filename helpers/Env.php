@@ -1,5 +1,5 @@
 <?php
-namespace Mws\Helpers;
+namespace Svm\Helpers;
 
 use Exception;
 

@@ -1,8 +1,8 @@
 <?php
-namespace Mws\Core;
+namespace Svm\Core;
 
-use Mws\Helpers\Response;
-use Mws\Core\StatusCode;
+use Svm\Helpers\Response;
+use Svm\Core\StatusCode;
 
 class Router {
     

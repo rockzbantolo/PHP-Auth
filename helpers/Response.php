@@ -1,13 +1,13 @@
 <?php
-namespace Mws\Helpers;
+namespace Svm\Helpers;
 
-use Mws\Core\StatusCode;
+use Svm\Core\RespCode;
 
 class Response
 {
-     private static function isDebugMode(): bool
+    private static function isDebugMode(): bool
     {
-        return getenv('APP_DEBUG') === 'true';
+        return getenv('APP_ENV') === 'local';
     }
 
     private static function formatBytes(int $bytes): string
@@ -19,12 +19,7 @@ class Response
         return round($bytes, 2) . ' ' . $units[$i];
     }
 
-    public static function success(
-        array $data = [],
-        string $message = "OK",
-        int $code = StatusCode::OK,
-        array $pagination = null
-    )
+    public static function success(array $data = [], string $message = "OK", int $code = RespCode::OK, array $pagination = null)
     {
         http_response_code($code);
 
@@ -44,11 +39,7 @@ class Response
         self::send($response);
     }
 
-    public static function error(
-        string $message = "An error occurred",
-        int $code = StatusCode::INTERNAL_SERVER_ERROR, 
-        $exception = null
-    )
+    public static function error(string $message = "An error occurred", int $code = RespCode::INTERNAL_SERVER_ERROR, $exception = null)
     {
         http_response_code($code);
 
@@ -93,10 +84,7 @@ class Response
         self::send($response);
     }
 
-    public static function validationError(
-        array $errors,
-        string $message = "Validation failed", 
-        int $code = StatusCode::UNPROCESSABLE_ENTITY)
+    public static function validationError(array $errors, string $message = "Validation failed", int $code = RespCode::UNPROCESSABLE_ENTITY)
     {
         http_response_code($code);
         self::send([
@@ -109,12 +97,12 @@ class Response
 
     public static function notFound(string $message = "Resource not found")
     {
-        self::error($message, StatusCode::NOT_FOUND);
+        self::error($message, RespCode::NOT_FOUND);
     }
 
     public static function unauthorized(string $message = "Unauthorized access")
     {
-        self::error($message, StatusCode::UNAUTHORIZED);
+        self::error($message, RespCode::UNAUTHORIZED);
     }
 
     private static function send(array $response)
@@ -124,7 +112,7 @@ class Response
         exit;
     }
 
-     public static function normalsuccess($message, $status = StatusCode::OK) {
+     public static function normalsuccess($message, $status = RespCode::OK) {
         http_response_code($status);
         echo json_encode(['status' => 'success', 'message' => $message]);
         exit;

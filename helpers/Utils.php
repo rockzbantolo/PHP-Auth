@@ -1,5 +1,5 @@
 <?php
-namespace Mws\Helpers;
+namespace Svm\Helpers;
 
 use UAParser\Parser;
 
@@ -13,19 +13,14 @@ class Utils {
 
     public static function getClientIp(): string
     {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-
-        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
-            $forwardedIps = explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']);
-            $ip = trim($forwardedIps[0]);
-        }
-
-        return $ip;
+        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
+        $ip = $ip ? trim(explode(',', $ip)[0]) : null;
+        return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
     }
 
     public static function getUserAgent(): string
     {
-        return $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
+        return $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
     }
 
     public static function getDeviceInfo(): string
@@ -44,14 +39,13 @@ class Utils {
         return json_encode($info, JSON_UNESCAPED_SLASHES);
     }
 
-    public static function requireFields(array $data, array $fields): array {
-        $errors = [];
+    public static function hasRequiredFields(array $data, array $fields): bool {
         foreach ($fields as $field) {
             if (!isset($data[$field]) || trim($data[$field]) === '') {
-                $errors[$field] = "Missing required field: $field";
+                return false;
             }
         }
-        return $errors;
+        return true;
     }
 
     public static function validateEmail(string $email): bool {
