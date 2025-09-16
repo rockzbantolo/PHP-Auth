@@ -1,7 +1,8 @@
 <?php
-namespace Mws\Core;
+namespace Svm\Core;
 
-use Mws\Helpers\Response;
+use Svm\Helpers\Response;
+use Svm\Core\StatusCode;
 
 class Routing
 {
@@ -49,14 +50,14 @@ class Routing
         if (!in_array($method, $allowed, true)) {
             Response::error(
                 "Unsupported HTTP method: $method",
-                \Mws\Core\StatusCode::METHOD_NOT_ALLOWED
+                StatusCode::METHOD_NOT_ALLOWED
             );
         }
 
         if (!method_exists($this->controller, $action)) {
             Response::error(
                 "Method '$action' not found in {$this->controller}",
-                \Mws\Core\StatusCode::NOT_FOUND
+                StatusCode::NOT_FOUND
             );
         }
 

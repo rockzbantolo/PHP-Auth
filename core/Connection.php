@@ -1,336 +1,209 @@
 <?php
-namespace Mws\Core;
+namespace Svm\Core;
 
-use Exception;
-use mysqli;
-use mysqli_stmt;
+use Doctrine\DBAL\DriverManager;
+use Doctrine\DBAL\Connection as DBALConnection;
+use Doctrine\DBAL\Connections\PrimaryReadReplicaConnection;
+use Doctrine\DBAL\Exception;
+use Doctrine\DBAL\Exception\ConnectionException;
+use Doctrine\DBAL\Query\QueryBuilder;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
+use RuntimeException;
 
 class Connection
 {
-    private static $pool = [];
-    private static $activeConnections = 0;
-    private static $maxConnections = 100;
-    private static $config = null;
-    private static $mysqlVersion = null;
+    private static ?DBALConnection $conn = null;
+    private static ?string $mysqlVersion = null;
+    private static ?LoggerInterface $logger = null;
 
-    /**
-     * Initialize database configuration once
-     */
-    private static function initConfig(): void
+    public function setLogger(LoggerInterface $logger): void
     {
-        if (self::$config === null) {
-            self::$config = [
-                'host'     => getenv('DB_HOST') ?: null,
-                'username' => getenv('DB_USER') ?: null,
-                'password' => getenv('DB_PASS') ?: null,
-                'database' => getenv('DB_NAME') ?: null,
-                'port'     => (int)(getenv('DB_PORT') ?: 3306),
-                'ssl'      => [
-                    'enabled' => getenv('DB_SSL_ENABLED') === 'true',
-                    'ca'      => getenv('DB_SSL_CA') ?: null,
-                    'cert'    => getenv('DB_SSL_CERT') ?: null,
-                    'key'     => getenv('DB_SSL_KEY') ?: null
-                ]
-            ];
+        self::$logger = $logger;
+    }
 
-            foreach (['host', 'username', 'database'] as $key) {
-                if (empty(self::$config[$key])) {
-                    throw new Exception("Missing required DB configuration: $key");
+    private static function init(): void
+    {
+        if (self::$conn !== null) {
+            return;
+        }
+
+        if (self::$logger === null) {
+            self::$logger = new NullLogger();
+        }
+
+        $required = ['DB_NAME', 'DB_USER', 'DB_PASS', 'DB_HOST'];
+        foreach ($required as $env) {
+            if (empty(getenv($env))) {
+                throw new RuntimeException("Missing required env variable: {$env}");
+            }
+        }
+
+        $config = [
+            'dbname'   => getenv('DB_NAME'),
+            'user'     => getenv('DB_USER'),
+            'password' => getenv('DB_PASS'),
+            'host'     => getenv('DB_HOST'),
+            'port'     => getenv('DB_PORT') ?: 3306,
+            'driver'   => 'pdo_mysql',
+            'charset'  => 'utf8mb4',
+            'driverOptions' => [
+                \PDO::ATTR_ERRMODE            => \PDO::ERRMODE_EXCEPTION,
+                \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
+                \PDO::ATTR_EMULATE_PREPARES   => false,
+            ],
+        ];
+
+        if ($serverVersion = getenv('DB_SERVER_VERSION')) {
+            $config['serverVersion'] = $serverVersion;
+        }
+
+        if (getenv('DB_PERSISTENT') === 'true') {
+            $config['persistent'] = true;
+        }
+
+        // SSL Support
+        if (getenv('DB_SSL_ENABLED') === 'true') {
+            foreach (['DB_SSL_CA' => \PDO::MYSQL_ATTR_SSL_CA,
+                      'DB_SSL_CERT' => \PDO::MYSQL_ATTR_SSL_CERT,
+                      'DB_SSL_KEY' => \PDO::MYSQL_ATTR_SSL_KEY] as $env => $opt) {
+                $path = getenv($env);
+                if ($path && (!file_exists($path) || !is_readable($path))) {
+                    throw new RuntimeException("Invalid SSL file: {$path}");
                 }
+                if ($path) {
+                    $config['driverOptions'][$opt] = $path;
+                }
+            }
+            if (getenv('DB_SSL_VERIFY') === 'false') {
+                $config['driverOptions'][\PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = false;
+            }
+        }
+
+        // Replicas
+        if (getenv('DB_USE_REPLICAS') === 'true') {
+            $primaryConfig = $config;
+            $replicaHosts = explode(',', getenv('DB_REPLICA_HOSTS') ?: '');
+            $replicas = [];
+
+            foreach ($replicaHosts as $host) {
+                $host = trim($host);
+                if ($host) {
+                    $replica = $primaryConfig;
+                    $replica['host'] = $host;
+                    $replicas[] = $replica;
+                }
+            }
+
+            if (!empty($replicas)) {
+                shuffle($replicas); // randomize replica choice for better load spreading
+                $config['wrapperClass'] = PrimaryReadReplicaConnection::class;
+                $config['primary'] = $primaryConfig;
+                $config['replicas'] = $replicas;
+
+                if (getenv('DB_KEEP_REPLICA') === 'true') {
+                    $config['keepReplica'] = true;
+                }
+                unset($config['host'], $config['port'], $config['user'], $config['password'], $config['dbname']);
+            } else {
+                self::$logger->warning("DB_USE_REPLICAS enabled but no DB_REPLICA_HOSTS provided.");
+            }
+        }
+
+        // Retry with backoff
+        $maxAttempts = (int) (getenv('DB_RETRY_ATTEMPTS') ?: 5);
+        $backoffBase = (int) (getenv('DB_RETRY_BACKOFF_MS') ?: 100);
+        $attempts = 0;
+
+        while ($attempts < $maxAttempts) {
+            try {
+                self::$conn = DriverManager::getConnection($config);
+                self::$logger->info("Database connection established", [
+                    'host' => $config['host'] ?? ($config['primary']['host'] ?? 'unknown'),
+                    'dbname' => $config['dbname'] ?? ($config['primary']['dbname'] ?? 'unknown')
+                ]);
+                break;
+            } catch (ConnectionException $e) {
+                $attempts++;
+                self::$logger->warning("DB connection attempt {$attempts} failed: {$e->getMessage()}");
+                if ($attempts >= $maxAttempts) {
+                    throw new RuntimeException("DB connection failed after {$attempts} attempts", 0, $e);
+                }
+                usleep($backoffBase * 1000 * (2 ** $attempts));
             }
         }
     }
 
-    /**
-     * Detect MySQL version for version-specific optimizations
-     */
-    private static function detectMysqlVersion(mysqli $conn): string
+    private static function isConnectionAlive(): bool
+    {
+        try {
+            self::$conn->executeQuery('SELECT 1');
+            return true;
+        } catch (Exception $e) {
+            self::$logger->warning("Connection health check failed: {$e->getMessage()}");
+            return false;
+        }
+    }
+
+    public static function getInstance(): DBALConnection
+    {
+        self::init();
+        try {
+            if (!self::$conn->isConnected() || !self::isConnectionAlive()) {
+                self::$logger->warning("Connection lost, attempting to reconnect");
+                self::$conn->close();
+                self::$conn = null;
+                self::init();
+            }
+        } catch (Exception $e) {
+            self::$logger->error("Connection check failed: {$e->getMessage()}");
+            self::$conn = null;
+            self::init();
+        }
+        return self::$conn;
+    }
+
+    public static function getMysqlVersion(): string
     {
         if (self::$mysqlVersion === null) {
-            $result = $conn->query("SELECT VERSION() as version");
-            $row = $result->fetch_assoc();
-            self::$mysqlVersion = $row['version'];
-            $result->free();
+            try {
+                $row = self::getInstance()->fetchAssociative("SELECT VERSION() AS version");
+                self::$mysqlVersion = $row['version'] ?? 'unknown';
+            } catch (Exception $e) {
+                self::$logger->error("Failed to fetch MySQL version: {$e->getMessage()}");
+                self::$mysqlVersion = 'unknown';
+            }
         }
         return self::$mysqlVersion;
     }
 
-    /**
-     * Get a connection from the pool
-     *
-     * @return mysqli
-     * @throws Exception
-     */
-    public static function getInstance(): mysqli
+    public static function createQueryBuilder(): QueryBuilder
     {
-        self::initConfig();
-
-        $connection = self::getPooled();
-        if ($connection) {
-            return $connection;
-        }
-
-        if (self::$activeConnections < self::$maxConnections) {
-            return self::createNew();
-        }
-
-        $attempts = 0;
-        $maxAttempts = 5;
-        while ($attempts < $maxAttempts) {
-            $connection = self::getPooled();
-            if ($connection) {
-                return $connection;
-            }
-            usleep(100000 * (2 ** $attempts));
-            $attempts++;
-        }
-
-        throw new Exception("Database connection pool exhausted after $maxAttempts attempts");
+        return self::getInstance()->createQueryBuilder();
     }
 
-    /**
-     * Get a connection from the pool
-     */
-    private static function getPooled(): ?mysqli
+    public static function getStats(): array
     {
-        foreach (self::$pool as $key => $poolItem) {
-            if (!$poolItem['inUse'] && $poolItem['connection']->ping()) {
-                self::$pool[$key]['inUse'] = true;
-                self::$pool[$key]['lastUsed'] = time();
-                self::$pool[$key]['inTransaction'] = false;
-                return $poolItem['connection'];
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Create a new optimized connection
-     */
-    private static function createNew(): mysqli
-    {
-        $config = self::$config;
-
-        $conn = new mysqli();
-        if ($config['ssl']['enabled']) {
-            $conn->ssl_set(
-                $config['ssl']['key'],
-                $config['ssl']['cert'],
-                $config['ssl']['ca'],
-                null,
-                null
-            );
-        }
-
-        $conn->real_connect(
-            $config['host'],
-            $config['username'],
-            $config['password'],
-            $config['database'],
-            $config['port'],
-            null,
-            $config['ssl']['enabled'] ? MYSQLI_CLIENT_SSL : 0
-        );
-
-        if ($conn->connect_error) {
-            error_log("Database connection failed: " . $conn->connect_error);
-            throw new Exception("Database connection failed: " . $conn->connect_error);
-        }
-
-        $conn->set_charset("utf8mb4");
-        $conn->query("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO'");
-        $conn->query("SET SESSION innodb_lock_wait_timeout = 5");
-        $conn->query("SET SESSION wait_timeout = 300");
-        $conn->query("SET SESSION interactive_timeout = 300");
-
-        $poolKey = uniqid('conn_', true);
-        self::$pool[$poolKey] = [
-            'connection' => $conn,
-            'inUse' => true,
-            'inTransaction' => false,
-            'created' => time(),
-            'lastUsed' => time(),
-            'key' => $poolKey,
-            'statements' => []
+        $conn = self::getInstance();
+        $stats = [
+            'is_connected'   => $conn->isConnected(),
+            'mysql_version'  => self::getMysqlVersion(),
+            'db_name'        => $conn->getDatabase(),
+            'host'           => $conn->getParams()['host'] ?? 'multiple',
         ];
-
-        self::$activeConnections++;
-        self::detectMysqlVersion($conn);
-        return $conn;
-    }
-
-    /**
-     * Release a connection back to the pool
-     */
-    public static function release(mysqli $conn): void
-    {
-        foreach (self::$pool as $key => $poolItem) {
-            if ($poolItem['connection'] === $conn && $poolItem['inUse']) {
-                if ($poolItem['inTransaction']) {
-                    $conn->rollback();
-                    error_log("Warning: Uncommitted transaction rolled back for connection $key");
-                    self::$pool[$key]['inTransaction'] = false;
-                }
-                // Only close statements when connection is released
-                foreach ($poolItem['statements'] as $stmt) {
-                    if ($stmt instanceof mysqli_stmt && !$stmt->errno) {
-                        $stmt->close();
-                    }
-                }
-                self::$pool[$key]['statements'] = [];
-                self::$pool[$key]['inUse'] = false;
-                self::$pool[$key]['lastUsed'] = time();
-                break;
-            }
+        if ($conn instanceof PrimaryReadReplicaConnection) {
+            $stats['is_primary'] = $conn->isConnectedToPrimary();
         }
+        return $stats;
     }
 
-    /**
-     * Mark a connection as in a transaction
-     */
-    public static function markTransactionStart(mysqli $conn): void
-    {
-        foreach (self::$pool as $key => $poolItem) {
-            if ($poolItem['connection'] === $conn) {
-                self::$pool[$key]['inTransaction'] = true;
-                break;
-            }
-        }
-    }
-
-    /**
-     * Mark a connection as out of a transaction
-     */
-    public static function markTransactionEnd(mysqli $conn): void
-    {
-        foreach (self::$pool as $key => $poolItem) {
-            if ($poolItem['connection'] === $conn) {
-                self::$pool[$key]['inTransaction'] = false;
-                break;
-            }
-        }
-    }
-
-    /**
-     * Cache a prepared statement
-     */
-    public static function cacheStatement(mysqli $conn, string $query, mysqli_stmt $stmt): void
-    {
-        foreach (self::$pool as $key => $poolItem) {
-            if ($poolItem['connection'] === $conn) {
-                $queryKey = md5($query);
-                if (!isset($poolItem['statements'][$queryKey]) || $poolItem['statements'][$queryKey]->errno) {
-                    self::$pool[$key]['statements'][$queryKey] = $stmt;
-                }
-                break;
-            }
-        }
-    }
-
-    /**
-     * Get a cached prepared statement
-     */
-    public static function getCachedStatement(mysqli $conn, string $query): ?mysqli_stmt
-    {
-        foreach (self::$pool as $key => $poolItem) {
-            if ($poolItem['connection'] === $conn) {
-                $queryKey = md5($query);
-                $stmt = $poolItem['statements'][$queryKey] ?? null;
-                if ($stmt instanceof mysqli_stmt && !$stmt->errno) {
-                    return $stmt;
-                }
-                // Remove invalid or closed statement
-                unset(self::$pool[$key]['statements'][$queryKey]);
-                return null;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Clean up old/unused connections
-     */
-    public static function cleanupPool(): void
-    {
-        $now = time();
-        $maxIdleTime = 120;
-
-        foreach (self::$pool as $key => $poolItem) {
-            if (!$poolItem['inUse'] && ($now - $poolItem['lastUsed']) > $maxIdleTime) {
-                foreach ($poolItem['statements'] as $stmt) {
-                    if ($stmt instanceof mysqli_stmt && !$stmt->errno) {
-                        $stmt->close();
-                    }
-                }
-                $poolItem['connection']->close();
-                unset(self::$pool[$key]);
-                self::$activeConnections--;
-            } elseif (!$poolItem['connection']->ping()) {
-                foreach ($poolItem['statements'] as $stmt) {
-                    if ($stmt instanceof mysqli_stmt && !$stmt->errno) {
-                        $stmt->close();
-                    }
-                }
-                unset(self::$pool[$key]);
-                self::$activeConnections--;
-            }
-        }
-    }
-
-    /**
-     * Get pool statistics
-     */
-    public static function getPoolStats(): array
-    {
-        $inUse = 0;
-        $available = 0;
-        $inTransaction = 0;
-        $cachedStatements = 0;
-
-        foreach (self::$pool as $poolItem) {
-            if ($poolItem['inUse']) {
-                $inUse++;
-                if ($poolItem['inTransaction']) {
-                    $inTransaction++;
-                }
-            } else {
-                $available++;
-            }
-            $cachedStatements += count($poolItem['statements']);
-        }
-
-        return [
-            'total_connections' => self::$activeConnections,
-            'in_use' => $inUse,
-            'in_transaction' => $inTransaction,
-            'available' => $available,
-            'cached_statements' => $cachedStatements,
-            'max_connections' => self::$maxConnections,
-            'mysql_version' => self::$mysqlVersion ?? 'unknown'
-        ];
-    }
-
-    /**
-     * Graceful shutdown - close all connections
-     */
     public static function shutdown(): void
     {
-        foreach (self::$pool as $poolItem) {
-            if ($poolItem['connection']->ping()) {
-                if ($poolItem['inTransaction']) {
-                    $poolItem['connection']->rollback();
-                    error_log("Warning: Uncommitted transaction rolled back during shutdown for connection {$poolItem['key']}");
-                }
-                foreach ($poolItem['statements'] as $stmt) {
-                    if ($stmt instanceof mysqli_stmt && !$stmt->errno) {
-                        $stmt->close();
-                    }
-                }
-                $poolItem['connection']->close();
-            }
+        if (self::$conn !== null) {
+            self::$conn->close();
+            self::$conn = null;
+            self::$mysqlVersion = null;
+            self::$logger->info("Database connection closed");
         }
-
-        self::$pool = [];
-        self::$activeConnections = 0;
     }
 }

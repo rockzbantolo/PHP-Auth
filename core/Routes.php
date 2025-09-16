@@ -1,32 +1,31 @@
 <?php
-namespace Mws\Core;
+namespace Svm\Core;
 
-use Mws\Controllers\AuthController;
-
+use Svm\Controllers\AuthCtrl;
 
 class Routes
 {
     public static function initRoutes($router)
     {
         //  Authentication
-        Routing::map($router, '/Auth', AuthController::class, function($r) {
+        Routing::map($router, '/Auth', AuthCtrl::class, function($r) {
 
-            // Authentication
           $r->post('/Login', 'login')
             ->post('/Logout', 'logout')
             ->post('/Register', 'registerUser')
-            ->post('/RefreshToken', 'refreshToken')
+            ->post('/Token/Refresh', 'refreshToken')
+            ->post('/Otp/Request', 'requestOTP')
+            ->post('/Otp/Verify', 'verifyOTP');
 
-            // Users
-            ->get('/Users', 'getAllUsers')
-            ->get('/Users/{id}', 'getUserById')
-            ->put('/Users/{id}', 'updateUserById')
-            ->delete('/Users/{id}', 'deleteUserById')
+        });
 
-            // Batch
-            ->post('/Batch/Create', 'batchCreateUsers')
-            ->put('/Batch/Update', 'batchUpdateUsers')
-            ->delete('/Batch/Delete', 'batchDeleteUsers');
+        //  Users
+        Routing::map($router, '/User', AuthCtrl::class, function($r) {
+
+          $r->get('', 'getAllUsers')
+            ->get('/{id}', 'getUserDetails')
+            ->put('/{id}', 'updateUserDetails')
+            ->delete('/{id}', 'deleteUserDetails');
         });
 
     }

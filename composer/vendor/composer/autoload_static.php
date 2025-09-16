@@ -13,23 +13,33 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
     );
 
     public static $prefixLengthsPsr4 = array (
+        'U' => 
+        array (
+            'UAParser\\' => 9,
+        ),
         'S' => 
         array (
             'Symfony\\Polyfill\\Php80\\' => 23,
             'Symfony\\Polyfill\\Mbstring\\' => 26,
             'Symfony\\Polyfill\\Ctype\\' => 23,
+            'Svm\\Services\\' => 13,
+            'Svm\\Repository\\' => 15,
+            'Svm\\Models\\' => 11,
+            'Svm\\Middleware\\' => 15,
+            'Svm\\Helpers\\' => 12,
+            'Svm\\Core\\' => 9,
+            'Svm\\Controllers\\' => 16,
         ),
         'P' => 
         array (
+            'Psr\\Log\\' => 8,
+            'Psr\\Cache\\' => 10,
             'PhpOption\\' => 10,
+            'PHPMailer\\PHPMailer\\' => 20,
         ),
         'M' => 
         array (
-            'Mws\\Models\\' => 11,
-            'Mws\\Middleware\\' => 15,
-            'Mws\\Helpers\\' => 12,
-            'Mws\\Core\\' => 9,
-            'Mws\\Controllers\\' => 16,
+            'Monolog\\' => 8,
         ),
         'G' => 
         array (
@@ -42,10 +52,20 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
         'D' => 
         array (
             'Dotenv\\' => 7,
+            'Doctrine\\Deprecations\\' => 22,
+            'Doctrine\\DBAL\\' => 14,
+        ),
+        'C' => 
+        array (
+            'Composer\\CaBundle\\' => 18,
         ),
     );
 
     public static $prefixDirsPsr4 = array (
+        'UAParser\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/ua-parser/uap-php/src',
+        ),
         'Symfony\\Polyfill\\Php80\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-php80',
@@ -58,29 +78,53 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-ctype',
         ),
+        'Svm\\Services\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../services',
+        ),
+        'Svm\\Repository\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../repository',
+        ),
+        'Svm\\Models\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../models',
+        ),
+        'Svm\\Middleware\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../middleware',
+        ),
+        'Svm\\Helpers\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../helpers',
+        ),
+        'Svm\\Core\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../core',
+        ),
+        'Svm\\Controllers\\' => 
+        array (
+            0 => __DIR__ . '/../..' . '/../controllers',
+        ),
+        'Psr\\Log\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/psr/log/src',
+        ),
+        'Psr\\Cache\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/psr/cache/src',
+        ),
         'PhpOption\\' => 
         array (
             0 => __DIR__ . '/..' . '/phpoption/phpoption/src/PhpOption',
         ),
-        'Mws\\Models\\' => 
+        'PHPMailer\\PHPMailer\\' => 
         array (
-            0 => __DIR__ . '/../..' . '/../models',
+            0 => __DIR__ . '/..' . '/phpmailer/phpmailer/src',
         ),
-        'Mws\\Middleware\\' => 
+        'Monolog\\' => 
         array (
-            0 => __DIR__ . '/../..' . '/../middleware',
-        ),
-        'Mws\\Helpers\\' => 
-        array (
-            0 => __DIR__ . '/../..' . '/../helpers',
-        ),
-        'Mws\\Core\\' => 
-        array (
-            0 => __DIR__ . '/../..' . '/../core',
-        ),
-        'Mws\\Controllers\\' => 
-        array (
-            0 => __DIR__ . '/../..' . '/../controllers',
+            0 => __DIR__ . '/..' . '/monolog/monolog/src/Monolog',
         ),
         'GrahamCampbell\\ResultType\\' => 
         array (
@@ -93,6 +137,18 @@ class ComposerStaticInit7166bf357275f5b73cfc565dd6996ece
         'Dotenv\\' => 
         array (
             0 => __DIR__ . '/..' . '/vlucas/phpdotenv/src',
+        ),
+        'Doctrine\\Deprecations\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/deprecations/src',
+        ),
+        'Doctrine\\DBAL\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/doctrine/dbal/src',
+        ),
+        'Composer\\CaBundle\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/composer/ca-bundle/src',
         ),
     );
 

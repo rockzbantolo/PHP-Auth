@@ -83,4 +83,11 @@ class StatusCode {
     const LOOP_DETECTED = 508;
     const NOT_EXTENDED = 510;
     const NETWORK_AUTHENTICATION_REQUIRED = 511;
+
+    const ERR_CONN_FAILED = 'Database connection failed: %s';
+    const ERR_PREPARE_FAILED = 'Failed to prepare statement for query "%s": %s';
+    const ERR_EXECUTE_FAILED = 'Query execution failed for "%s": %s';
+    const ERR_RESULT_FAILED = 'Failed to get query result for "%s": %s';
+    const ERR_PARAM_MISMATCH = 'Number of parameters (%d) does not match types (%d) for query "%s".';
+    const ERR_TRANSACTION_FAILED = 'Transaction failed: %s';
 }

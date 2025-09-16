@@ -1,16 +1,17 @@
 <?php
 require __DIR__ . '/composer/vendor/autoload.php';
 
-//use Mws\Middleware\Auth;
-use Mws\Middleware\Cors;
-use Mws\Helpers\Env;
-use Mws\Helpers\Response;
-use Mws\Helpers\Request;
-use Mws\Core\Routes;
+use Svm\Middleware\Auth;
+use Svm\Middleware\Cors;
+use Svm\Helpers\Env;
+use Svm\Helpers\Response;
+use Svm\Helpers\Request;
+use Svm\Core\Routes;
 
 Env::InitEnv('./.env');
 Cors::InitCors();
-//Auth::InitApiKeyAuth();
+// Ensures token is valid if token is expired client must call the refresh token.
+//Auth::Token($_SERVER['REMOTE_ADDR']);
 
 // Initialize router
 [$router, $method, $path] = Request::initRouter();
