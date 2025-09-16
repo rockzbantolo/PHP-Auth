@@ -6,7 +6,6 @@ use Svm\Helpers\Utils;
 use Doctrine\DBAL\ParameterType;
 use RuntimeException;
 use InvalidArgumentException;
-use DateTimeInterface;
 use DateTime;
 use Throwable;
 
@@ -158,7 +157,7 @@ abstract class Base
     /**
      * Log a user action in user_activity_logs
      */
-    protected function logUserAction($conn, int $userId, string $action, array $details = []): void
+    public function logUserAction($conn, int $userId, string $action, array $details = []): void
     {
         $statusId = $conn->fetchOne(
             "SELECT status_id FROM statuses WHERE status_code = :code LIMIT 1",

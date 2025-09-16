@@ -151,6 +151,24 @@ class AuthSvc
         }
     }
 
+    public function undeleteUserById($id)
+    {
+        try {
+
+            if (!Utils::validateId($id)) {
+                return Response::error("Invalid user ID", RespCode::BAD_REQUEST);
+            }
+
+            $result = $this->model->undeleteUser($id);
+            return $result ? 
+                    Response::success([], "User undeleted successfully") : 
+                    Response::error("User undeletion failed or user not found", RespCode::NOT_FOUND);
+
+        } catch (Throwable $e) {
+            return Response::error("Failed to delete user", RespCode::INTERNAL_SERVER_ERROR, $e);
+        }
+    }
+
     public function loginUser($data): array
     {
         try {
@@ -194,9 +212,7 @@ class AuthSvc
             $access  = Token::generateAccessToken($user['user_id'], $user['username']);
             $refresh = Token::generateRefreshToken();
 
-            if(!$this->model->storeTokens($user['user_id'], $access['token'],
-                                          $refresh['token'], $access['expires_at'],
-                                          $refresh['expires_at'])) {
+            if(!$this->model->storeTokens($user['user_id'], $access['token'], $refresh['token'], $access['expires_at'], $refresh['expires_at'])) {
                  Response::error("Login failed to stored token", RespCode::INTERNAL_SERVER_ERROR);
             }
 
@@ -221,11 +237,6 @@ class AuthSvc
             if (!Utils::validateId($data['user_id'])) {
                 return Response::error("Invalid user ID", RespCode::BAD_REQUEST);
             }
-
-            /* For JWT Auth
-            if (!Utils::validateId($userId)) {
-                return Response::error("Invalid user ID", RespCode::BAD_REQUEST);
-            }*/
 
             return $this->model->clearTokens($data['user_id']) ? 
                     Response::success([], "Logout successful") : 
